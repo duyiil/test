@@ -8,11 +8,56 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 logger = logging.getLogger("zhitest.llm")
+
+JSON_KINDS = {"integer", "number", "string", "boolean", "object", "array", "null"}
+_SECRET_RE = re.compile(r"sk-[A-Za-z0-9_\-]{4,}")
+_BEARER_RE = re.compile(r"(?i)\bBearer\s+\S+")
+
+GENERATE_SYSTEM = (
+    "你是接口测试用例生成器。只输出 json，不要输出解释。"
+    "顶层必须是 json 对象，格式为 {\"cases\": [用例, ...]}。"
+    "每条用例把 method 和 relativePath 放在顶层，不要包在 request 里。"
+    "assertions[].type 只能是 statusCode、jsonType、equals、range。"
+    "statusCode 的 expected 是整数状态码；jsonType 的 expected 是 integer、number、string、boolean、object、array 或 null。"
+    "只根据给定契约生成，契约没有声明的状态码不要写进断言。"
+)
+
+TRIAGE_SYSTEM = (
+    "你是测试结果研判助手。请用中文给出分组根因分析和修复建议。"
+    "只根据失败明细里的用例名、方法、路径、期望值、实际值和响应片段下结论。"
+    "相同原因合并成一组，并给出可核对的建议。"
+    "不要只用通过数、失败数和通过率复述结果。"
+    "证据不足时写待核对，不要把未验证的问题说成已确认漏洞。"
+)
+
+SCHEMA_EXAMPLE = {
+    "cases": [
+        {
+            "name": "查询商品列表成功",
+            "description": "契约声明该接口可以返回 200。",
+            "scenario": "正常功能",
+            "basis": "契约声明 GET /api/products 返回 200，items 为 array。",
+            "method": "GET",
+            "relativePath": "/api/products",
+            "headers": {},
+            "query": {},
+            "pathParams": {},
+            "body": None,
+            "timeout": 30,
+            "assertions": [
+                {"type": "statusCode", "expected": 200},
+                {"type": "jsonType", "path": "items", "expected": "array"},
+            ],
+        }
+    ]
+}
 
 
 class LLMGenerationProvider:
@@ -28,45 +73,52 @@ class LLMGenerationProvider:
         prompt = {
             "project": project_name,
             "contract": contract,
+            "output": "json",
+            "schemaExample": SCHEMA_EXAMPLE,
             "rules": [
                 "只根据给定契约生成用例",
-                "契约没有声明 401 时不要生成 401",
+                "契约没有声明的状态码不要写入断言",
                 "每条用例必须有 assertions",
-                "输出 JSON 数组，不要输出解释",
+                "method 与 relativePath 放在用例顶层",
+                "输出 json 对象，键为 cases，值是用例数组",
             ],
         }
-        content = self._chat(
-            "你是测试用例生成器。只输出 JSON 数组。",
-            json.dumps(prompt, ensure_ascii=False),
-        )
+        content = self._chat(GENERATE_SYSTEM, json.dumps(prompt, ensure_ascii=False), json_mode=True)
         parsed = _load_json(content)
-        if isinstance(parsed, dict) and isinstance(parsed.get("cases"), list):
-            parsed = parsed["cases"]
-        if not isinstance(parsed, list):
-            raise ValueError("模型输出不是用例数组")
-        for item in parsed:
+        cases = _unwrap_cases(parsed)
+        normalized: list[Any] = []
+        for item in cases:
             if isinstance(item, dict):
-                item["origin"] = "llm"
-        return parsed
+                case = normalize_generated_case(item)
+                case["origin"] = "llm"
+                normalized.append(case)
+            else:
+                normalized.append(item)
+        return normalized
 
     def triage(self, report: dict[str, Any]) -> str:
+        failures = failure_details(report)
         content = self._chat(
-            "你只根据给定执行结果写数据摘要。不要把未验证的问题说成已确认漏洞。输出一段中文。",
+            TRIAGE_SYSTEM,
             json.dumps(
                 {
                     "status": report.get("status"),
                     "passed": report.get("passedCount"),
                     "assertionFailed": report.get("assertionFailedCount"),
+                    "executionError": report.get("executionErrorCount"),
                     "passRateText": report.get("passRateText"),
+                    "failures": failures,
+                    "instruction": "按根因分组，说明期望与实际差异，并给出建议。不要只复述数量。",
                 },
                 ensure_ascii=False,
             ),
+            json_mode=False,
         )
         return content.strip()[:2000]
 
-    def _chat(self, system: str, user: str) -> str:
+    def _chat(self, system: str, user: str, *, json_mode: bool) -> str:
         url = self.base_url + "/chat/completions"
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "temperature": 0,
             "messages": [
@@ -74,6 +126,8 @@ class LLMGenerationProvider:
                 {"role": "user", "content": user},
             ],
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         logger.info("llm request model=%s url_host=%s", self.model, _host(self.base_url))
         try:
             with httpx.Client(timeout=30, transport=self._transport) as client:
@@ -93,13 +147,128 @@ class LLMGenerationProvider:
             raise ValueError("模型响应缺少 content") from exc
 
 
-def _load_json(content: str) -> Any:
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text)
+def normalize_generated_case(item: dict[str, Any]) -> dict[str, Any]:
+    """把常见的模型输出收成校验器认识的顶层字段。已是规范形状时保持不变。"""
+
+    request = item.get("request") if isinstance(item.get("request"), dict) else {}
+    raw_method = item.get("method") or item.get("httpMethod") or request.get("method") or request.get("httpMethod") or ""
+    raw_path = (
+        item.get("relativePath")
+        or item.get("path")
+        or request.get("relativePath")
+        or request.get("path")
+        or request.get("url")
+        or item.get("url")
+        or ""
+    )
+    headers = item.get("headers") if isinstance(item.get("headers"), dict) else request.get("headers")
+    query = item.get("query") if isinstance(item.get("query"), dict) else request.get("query") or request.get("params")
+    path_params = item.get("pathParams") if isinstance(item.get("pathParams"), dict) else request.get("pathParams")
+    if "body" in item:
+        body = item.get("body")
+    else:
+        body = request.get("body")
+    raw_assertions = item.get("assertions")
+    if not isinstance(raw_assertions, list):
+        raw_assertions = item.get("checks") if isinstance(item.get("checks"), list) else request.get("assertions")
+    assertions = [_normalize_assertion(entry) for entry in raw_assertions or [] if isinstance(entry, dict)]
+    try:
+        timeout = int(item.get("timeout") or item.get("timeoutSeconds") or 30)
+    except (TypeError, ValueError):
+        timeout = 30
+    normalized: dict[str, Any] = {
+        "name": str(item.get("name") or item.get("title") or "未命名")[:200],
+        "description": str(item.get("description") or ""),
+        "scenario": str(item.get("scenario") or ""),
+        "basis": str(item.get("basis") or item.get("reason") or ""),
+        "method": str(raw_method).upper(),
+        "relativePath": _path_only(str(raw_path)),
+        "headers": headers if isinstance(headers, dict) else {},
+        "query": query if isinstance(query, dict) else {},
+        "pathParams": path_params if isinstance(path_params, dict) else {},
+        "body": body,
+        "timeout": timeout,
+        "assertions": assertions,
+        "origin": str(item.get("origin") or "llm"),
+    }
+    if item.get("extract") is not None:
+        normalized["extract"] = item.get("extract")
+    if item.get("dependencies") is not None:
+        normalized["dependencies"] = item.get("dependencies")
+    return normalized
+
+
+def failure_details(report: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in report.get("results") or []:
+        if not isinstance(item, dict) or item.get("status") in {"passed", "skipped"}:
+            continue
+        request = item.get("request") if isinstance(item.get("request"), dict) else {}
+        failed = []
+        for assertion in item.get("assertionResults") or []:
+            if isinstance(assertion, dict) and assertion.get("passed") is False:
+                failed.append(
+                    {
+                        "type": assertion.get("type"),
+                        "expected": assertion.get("expected"),
+                        "actual": assertion.get("actual"),
+                        "message": assertion.get("message"),
+                    }
+                )
+        rows.append(
+            {
+                "name": item.get("name") or "",
+                "method": item.get("method") or request.get("method"),
+                "path": redact_secrets(str(item.get("path") or request.get("url") or ""))[:300],
+                "responseStatus": item.get("responseStatus"),
+                "errorClass": item.get("errorClass"),
+                "errorMessage": redact_secrets(str(item.get("errorMessage") or ""))[:300],
+                "failedAssertions": failed,
+                "responseSnippet": redact_secrets(str(item.get("responseBody") or ""))[:500],
+            }
+        )
+        if len(rows) >= 30:
+            break
+    return rows
+
+
+def apply_triage(
+    report: dict[str, Any],
+    *,
+    base_url: str,
+    model: str,
+    api_key: str,
+    transport: httpx.BaseTransport | None = None,
+) -> tuple[str, str]:
+    try:
+        message = LLMGenerationProvider(
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            transport=transport,
+        ).triage(report)
+        return "succeeded", message
+    except Exception as exc:
+        reason = redact_secrets(f"{type(exc).__name__}: {exc}", secret=api_key)
+        logger.warning("llm triage failed: %s", reason)
+        return "failed", f"研判失败，数据报告仍可查看。原因：{reason}"[:2000]
+
+
+def redact_secrets(text: str, *, secret: str | None = None) -> str:
+    if secret:
+        text = text.replace(secret, "***")
+    text = _BEARER_RE.sub("Bearer ***", text)
+    text = _SECRET_RE.sub("sk-***", text)
+    return text
+
+
+def intended_generation() -> tuple[str, str | None]:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if settings.llm_api_key:
+        return "llm", settings.llm_model
+    return "mock", None
 
 
 def provider_from_settings() -> Any:
@@ -116,7 +285,81 @@ def provider_from_settings() -> Any:
     )
 
 
-def _host(url: str) -> str:
-    from urllib.parse import urlsplit
+def _unwrap_cases(parsed: Any) -> list[Any]:
+    if isinstance(parsed, dict) and isinstance(parsed.get("cases"), list):
+        return list(parsed["cases"])
+    if isinstance(parsed, list):
+        return parsed
+    raise ValueError("模型输出不是用例数组")
 
+
+def _normalize_assertion(raw: dict[str, Any]) -> dict[str, Any]:
+    kind_raw = str(raw.get("type") or raw.get("assertionType") or "")
+    compact = re.sub(r"[\s_\-]", "", kind_raw).lower()
+    expected = raw.get("expected", raw["expect"] if "expect" in raw else raw.get("value"))
+    path = raw.get("path") or raw.get("jsonPath") or raw.get("bodyPath") or raw.get("pointer")
+    if isinstance(path, str) and path.startswith("$."):
+        path = path[2:]
+    out: dict[str, Any] = {}
+    if path:
+        out["path"] = path
+    if compact in {"status", "statuscode", "httpstatus"}:
+        out["type"] = "statusCode"
+        if isinstance(expected, str) and expected.isdigit():
+            expected = int(expected)
+        if expected is None and raw.get("code") is not None:
+            expected = raw.get("code")
+        if expected is not None:
+            out["expected"] = expected
+        return out
+    if compact in {"bodypath", "jsonpath", "jsontype"}:
+        if isinstance(expected, str) and expected.lower() in JSON_KINDS:
+            out["type"] = "jsonType"
+            out["expected"] = expected.lower()
+        else:
+            out["type"] = "equals"
+            if expected is not None:
+                out["expected"] = expected
+        return out
+    if compact in {"equal", "equals", "eq"}:
+        out["type"] = "equals"
+        if expected is not None:
+            out["expected"] = expected
+        return out
+    if compact in {"range", "between"}:
+        out["type"] = "range"
+        minimum = raw.get("minimum", raw.get("min"))
+        maximum = raw.get("maximum", raw.get("max"))
+        if minimum is not None:
+            out["minimum"] = minimum
+        if maximum is not None:
+            out["maximum"] = maximum
+        return out
+    out["type"] = kind_raw
+    if expected is not None and kind_raw != "range":
+        out["expected"] = expected
+    return out
+
+
+def _path_only(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return ""
+    if "://" in text:
+        text = urlsplit(text).path or "/"
+    if "?" in text:
+        text = text.split("?", 1)[0]
+    return text
+
+
+def _load_json(content: str) -> Any:
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:]
+    return json.loads(text)
+
+
+def _host(url: str) -> str:
     return urlsplit(url).netloc

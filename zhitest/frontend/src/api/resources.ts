@@ -45,6 +45,7 @@ export interface GenerationTask {
   id: string;
   status: string;
   provider: string;
+  model?: string | null;
   targetCount: number;
   succeededCount: number;
   failedCount: number;

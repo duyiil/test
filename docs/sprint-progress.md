@@ -7,7 +7,7 @@
 | US-001 | TODO，Sprint1 | 部分：创建/列表/详情，另有多环境、归档、删除和成员接口。页面还没有完整成员管理。 |
 | US-002 | TODO，Sprint1 | 部分：列表显示真实接口数、用例数和最近执行。 |
 | US-003 | TODO | 部分：OpenAPI 3.x JSON/YAML 预览后确认导入。没有 URL 拉取和 2.0。 |
-| US-004、US-005 | TODO | 部分：导入后的契约可交给 Mock 生成。真实 LLM 仅在配置了 ZHITEST_LLM_API_KEY 时启用，默认仍是 Mock。 |
+| US-004、US-005 | TODO | 部分：导入后的契约可交给 Mock 生成。真实 LLM 仅在配置了 ZHITEST_LLM_API_KEY 时启用，默认仍是 Mock。生成结果会按约定 schema 归一化，任务上记录实际 provider 与 model。 |
 | US-006 | TODO | 部分：单条和批量通过/驳回。没有移动端滑动审核。 |
 | US-007、US-008 | TODO | 部分：用例集、顺序、依赖和变量提取。Worker 执行和结果明细已有。 |
 | US-009、US-010 | TODO | 部分：数据报告和 HTML/JSON 导出。有密钥时才会调用研判；失败时数据报告仍在。 |
