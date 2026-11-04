@@ -21,5 +21,6 @@ class Project(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     env_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", server_default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

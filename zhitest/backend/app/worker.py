@@ -21,6 +21,14 @@ logger = logging.getLogger("zhitest.worker")
 def tick(worker_id: str) -> bool:
     db = SessionLocal()
     try:
+        from app.modules.platform.service import recover_stale_runs
+
+        recover_stale_runs(db)
+        db.commit()
+    finally:
+        db.close()
+    db = SessionLocal()
+    try:
         task_id = claim_generation_task(db)
     finally:
         db.close()
