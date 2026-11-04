@@ -1,0 +1,45 @@
+# 本地开发编排。口令是占位值，与 .env.example 一致，不能当作生产密钥。
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: zhitest
+      POSTGRES_PASSWORD: zhitest
+      POSTGRES_DB: zhitest
+    ports:
+      - "5432:5432"
+    volumes:
+      - zhitest-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zhitest -d zhitest"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    build:
+      context: ../zhitest/backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://zhitest:zhitest@postgres:5432/zhitest
+      ZHITEST_ENV: development
+      ZHITEST_AUTO_BOOTSTRAP: "true"
+      ZHITEST_ADMIN_USERNAME: admin
+      ZHITEST_ADMIN_PASSWORD: ChangeMe-Admin-2026
+      ZHITEST_COOKIE_SECURE: "false"
+      ZHITEST_TRUST_PROXY: "true"
+      ZHITEST_CORS_ORIGINS: http://localhost:8080
+      ZHITEST_LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  web:
+    build:
+      context: ../zhitest/frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  zhitest-pg:
