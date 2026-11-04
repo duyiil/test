@@ -225,7 +225,7 @@ def test_worker_executes_against_author_sut_and_keeps_report(client: TestClient,
         from app.core.errors import AppError
 
         with pytest.raises(AppError):
-            assert_base_url_allowed("https://example.com")
+            assert_base_url_allowed("http://169.254.169.254/latest/meta-data")
     finally:
         server.should_exit = True
         thread.join(timeout=3)

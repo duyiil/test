@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.parse import urljoin
+
+from app.core.clock import utcnow
+from app.core.errors import AppError
+from app.execution.variables import extract_values, substitute
 
 import httpx
 from sqlalchemy import select
@@ -40,8 +44,13 @@ def execute_run(db: Session, run_id: uuid.UUID, transport: Transport | None = No
     sender = transport or _http_transport
     consecutive_connect_failures = 0
     aborted = False
+    failed_cases: set[str] = set()
+    variables: dict[str, Any] = {}
     for index, version in enumerate(versions, start=1):
         db.refresh(run)
+        now = utcnow()
+        run.heartbeat_at = now
+        run.lease_expires_at = now + timedelta(seconds=60)
         if run.cancel_requested or run.status == "cancelling":
             _skip_rest(db, run, versions[index - 1 :], index, "用户取消")
             _finish(db, run, "cancelled", "用户取消")
@@ -50,7 +59,25 @@ def execute_run(db: Session, run_id: uuid.UUID, transport: Transport | None = No
             _skip_rest(db, run, versions[index - 1 :], index, "环境异常")
             _finish(db, run, "aborted", "连续连接失败，已中止")
             return
-        outcome = _execute_case(project.base_url, version, sender)
+        if any(str(dep) in failed_cases for dep in (version.dependencies or [])):
+            _skip_one(db, run, version, index, "前置用例失败")
+            failed_cases.add(str(version.case_id))
+            db.commit()
+            continue
+        try:
+            rendered = _render_version(version, variables)
+        except AppError as exc:
+            outcome = _error_outcome(
+                {"method": version.method, "url": version.relative_path},
+                "variable_missing",
+                exc.message,
+                1,
+            )
+            _save_result(db, run, version, index, outcome)
+            failed_cases.add(str(version.case_id))
+            db.commit()
+            continue
+        outcome = _execute_case(project.base_url, rendered, sender)
         if outcome["error_class"] in {"connect_error", "timeout"} and version.method in READ_METHODS and outcome["attempt_count"] == 1:
             outcome = _execute_case(project.base_url, version, sender)
             outcome["attempt_count"] = 2
@@ -61,6 +88,10 @@ def execute_run(db: Session, run_id: uuid.UUID, transport: Transport | None = No
                 aborted = True
         else:
             consecutive_connect_failures = 0
+        if outcome["status"] == "passed":
+            variables.update(extract_values(version.extract or [], outcome.get("response_body") or ""))
+        else:
+            failed_cases.add(str(version.case_id))
         db.commit()
     db.refresh(run)
     if aborted:
@@ -70,6 +101,43 @@ def execute_run(db: Session, run_id: uuid.UUID, transport: Transport | None = No
         _finish(db, run, "cancelled", "用户取消")
         return
     _finish(db, run, "succeeded", None)
+
+
+def _render_version(version: TestCaseVersion, variables: dict[str, Any]) -> Any:
+    return type(
+        "RenderedCase",
+        (),
+        {
+            "method": version.method,
+            "relative_path": substitute(version.relative_path, variables),
+            "headers": substitute(version.headers or {}, variables),
+            "query": substitute(version.query or {}, variables),
+            "path_params": substitute(version.path_params or {}, variables),
+            "body": substitute(version.body, variables),
+            "timeout_seconds": version.timeout_seconds,
+            "assertions": version.assertions,
+        },
+    )()
+
+
+def _skip_one(db: Session, run: TestRun, version: TestCaseVersion, ordinal: int, reason: str) -> None:
+    db.add(
+        RunResult(
+            run_id=run.id,
+            case_version_id=version.id,
+            ordinal=ordinal,
+            status="skipped",
+            request={"method": version.method, "url": version.relative_path},
+            response_status=None,
+            response_body=None,
+            error_class="skipped",
+            error_message=reason,
+            assertion_results=[],
+            attempt_count=0,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    run.skipped_count += 1
 
 
 def _execute_case(base_url: str, version: TestCaseVersion, transport: Transport) -> dict[str, Any]:
@@ -196,6 +264,15 @@ def _http_transport(request: dict[str, Any]) -> tuple[int | None, str, str | Non
                 headers=request.get("headers") or None,
                 json=request.get("body") if request.get("body") is not None else None,
             )
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("location")
+                if location:
+                    target = urljoin(str(response.url), location)
+                    try:
+                        assert_base_url_allowed(target)
+                    except AppError as exc:
+                        return None, "", "ssrf_redirect", exc.message
+                    response = client.request(request["method"], target)
     except httpx.TimeoutException:
         return None, "", "timeout", "请求超时"
     except httpx.TransportError as exc:

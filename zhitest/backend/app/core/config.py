@@ -33,6 +33,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ZHITEST_CORS_ORIGINS"),
     )
     log_level: str = Field(default="INFO", validation_alias=AliasChoices("ZHITEST_LOG_LEVEL"))
+    target_allowlist: str = Field(
+        default="127.0.0.1,localhost,::1",
+        validation_alias=AliasChoices("ZHITEST_TARGET_ALLOWLIST"),
+    )
+    llm_base_url: str = Field(
+        default="https://api.deepseek.com",
+        validation_alias=AliasChoices("ZHITEST_LLM_BASE_URL"),
+    )
+    llm_model: str = Field(default="deepseek-chat", validation_alias=AliasChoices("ZHITEST_LLM_MODEL"))
+    llm_api_key: str = Field(default="", validation_alias=AliasChoices("ZHITEST_LLM_API_KEY"))
 
     @property
     def cors_origin_list(self) -> list[str]:

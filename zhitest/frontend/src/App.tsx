@@ -1,21 +1,23 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { App as AntApp, ConfigProvider, theme as antdTheme } from "antd";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { AdminLayout } from "./layouts/AdminLayout";
-import { AccountPage } from "./pages/AccountPage";
-import { DashboardPage } from "./pages/DashboardPage";
-import { LoginPage } from "./pages/LoginPage";
-import { LogoutPage } from "./pages/LogoutPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
-import { ProjectCreatePage } from "./pages/ProjectCreatePage";
-import { ProjectDetailPage } from "./pages/ProjectDetailPage";
-import { ProjectListPage } from "./pages/ProjectListPage";
-import { ReportPage } from "./pages/ReportPage";
-import { ReviewPage } from "./pages/ReviewPage";
-import { RunPage } from "./pages/RunPage";
 import { RequireAuth } from "./router/RequireAuth";
 import { useUiStore } from "./stores/ui";
+
+const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
+const ProjectListPage = lazy(() => import("./pages/ProjectListPage").then((module) => ({ default: module.ProjectListPage })));
+const ProjectCreatePage = lazy(() => import("./pages/ProjectCreatePage").then((module) => ({ default: module.ProjectCreatePage })));
+const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage").then((module) => ({ default: module.ProjectDetailPage })));
+const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
+const SuitePage = lazy(() => import("./pages/SuitePage").then((module) => ({ default: module.SuitePage })));
+const RunPage = lazy(() => import("./pages/RunPage").then((module) => ({ default: module.RunPage })));
+const ReportPage = lazy(() => import("./pages/ReportPage").then((module) => ({ default: module.ReportPage })));
+const AccountPage = lazy(() => import("./pages/AccountPage").then((module) => ({ default: module.AccountPage })));
+const LogoutPage = lazy(() => import("./pages/LogoutPage").then((module) => ({ default: module.LogoutPage })));
+const PlaceholderPage = lazy(() => import("./pages/PlaceholderPage").then((module) => ({ default: module.PlaceholderPage })));
 
 function AuthEvents() {
   const navigate = useNavigate();
@@ -46,6 +48,7 @@ export function App() {
     >
       <AntApp>
         <AuthEvents />
+        <Suspense fallback={null}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route element={<RequireAuth />}>
@@ -55,10 +58,7 @@ export function App() {
               <Route path="projects/new" element={<ProjectCreatePage />} />
               <Route path="projects/:projectId" element={<ProjectDetailPage />} />
               <Route path="reviews" element={<ReviewPage />} />
-              <Route
-                path="suites"
-                element={<PlaceholderPage title="测试用例集" note="Phase 2 从执行任务页提交全部已确认用例。依赖编排、变量提取不在本阶段。" />}
-              />
+              <Route path="suites" element={<SuitePage />} />
               <Route path="runs" element={<RunPage />} />
               <Route path="reports" element={<ReportPage />} />
               <Route
@@ -76,6 +76,7 @@ export function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </AntApp>
     </ConfigProvider>
   );

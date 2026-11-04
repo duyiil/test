@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Generator
-from datetime import datetime, timezone
-
 from fastapi import Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.security import hash_token
@@ -50,7 +49,7 @@ def get_current_user(
     if not raw:
         raise AppError(401, "UNAUTHORIZED", "未登录或登录已失效")
     session = db.scalar(select(UserSession).where(UserSession.token_hash == hash_token(raw)))
-    now = datetime.now(timezone.utc)
+    now = utcnow()
     if session is None or session.revoked_at is not None or session.expires_at <= now:
         raise AppError(401, "UNAUTHORIZED", "未登录或登录已失效")
     user = db.get(User, session.user_id)
