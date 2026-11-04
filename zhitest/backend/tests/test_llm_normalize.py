@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.modules.ai.llm_provider import (
     LLMGenerationProvider,
+    TRIAGE_CHAR_LIMIT,
     apply_triage,
+    bound_model_text,
     failure_details,
     normalize_generated_case,
 )
@@ -185,6 +187,35 @@ def test_triage_sends_failure_details_not_only_counts() -> None:
     details = failure_details(report)
     assert details[0]["failedAssertions"][0]["expected"] == "number"
     assert details[0]["failedAssertions"][0]["actual"] == "string"
+
+
+def test_triage_text_stops_at_a_sentence_when_truncated() -> None:
+    short = "价格字段是字符串。"
+    assert bound_model_text(short) == short
+    long = "第一组：价格被写成字符串。建议核对种子数据。" + ("后续句子很长。" * 2000)
+    limited = bound_model_text(long, limit=40)
+    assert limited.endswith("（已截断）")
+    assert len(limited) <= 40
+    assert limited.startswith("第一组：价格被写成字符串。")
+    assert limited.removesuffix("（已截断）").endswith("。")
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"choices": [{"message": {"content": long}}]})
+
+    provider = LLMGenerationProvider(
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+        api_key="sk-test-secret",
+        transport=httpx.MockTransport(handler),
+    )
+    text = provider.triage({"results": [], "passedCount": 0, "assertionFailedCount": 1, "passRateText": "0%"})
+    assert seen["body"]["max_tokens"] == 2048
+    assert "response_format" not in seen["body"]
+    assert text.endswith("（已截断）")
+    assert len(text) <= TRIAGE_CHAR_LIMIT
+    assert "第一组：价格被写成字符串。" in text
 
 
 def test_triage_failure_is_logged_without_the_key(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:

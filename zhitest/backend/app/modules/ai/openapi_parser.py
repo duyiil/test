@@ -31,6 +31,7 @@ def parse_openapi_document(raw: str) -> dict[str, Any]:
         raise ValueError("文档没有 paths")
     endpoints: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
     for path, item in paths.items():
         if not isinstance(item, dict):
             errors.append({"loc": f"paths.{path}", "msg": "路径定义不是对象"})
@@ -43,20 +44,28 @@ def parse_openapi_document(raw: str) -> dict[str, Any]:
                 errors.append({"loc": f"paths.{path}.{method}", "msg": "操作定义不是对象"})
                 continue
             try:
-                endpoints.append(_operation(document, str(path), method.upper(), operation))
+                endpoints.append(_operation(document, str(path), method.upper(), item, operation, warnings))
             except ValueError as exc:
                 errors.append({"loc": f"paths.{path}.{method}", "msg": str(exc)})
     if len(endpoints) > 300:
         raise ValueError("单次最多导入 300 个接口")
     if not endpoints:
         raise ValueError("没有解析出可导入的接口")
-    return {"openapi": version, "endpoints": endpoints, "errors": errors}
+    return {"openapi": version, "endpoints": endpoints, "errors": errors, "warnings": warnings}
 
 
-def _operation(document: dict[str, Any], path: str, method: str, operation: dict[str, Any]) -> dict[str, Any]:
-    parameters = operation.get("parameters") or []
+def _operation(
+    document: dict[str, Any],
+    path: str,
+    method: str,
+    path_item: dict[str, Any],
+    operation: dict[str, Any],
+    warnings: list[dict[str, str]],
+) -> dict[str, Any]:
+    parameters = list(path_item.get("parameters") or []) + list(operation.get("parameters") or [])
     query: list[dict[str, Any]] = []
     path_params: list[dict[str, Any]] = []
+    path_index: dict[str, int] = {}
     for parameter in parameters:
         if isinstance(parameter, dict) and "$ref" in parameter:
             parameter = _resolve(document, str(parameter["$ref"]), f"{method} {path} parameter")
@@ -72,9 +81,29 @@ def _operation(document: dict[str, Any], path: str, method: str, operation: dict
         if location == "query":
             query.append(field)
         elif location == "path":
+            name = str(parameter.get("name") or "")
             field["required"] = True
-            field["example"] = schema.get("example") or "sample"
-            path_params.append(field)
+            example, generated = _path_example(parameter, schema)
+            field["example"] = example
+            field["exampleGenerated"] = generated
+            if name in path_index:
+                path_params[path_index[name]] = field
+            else:
+                path_index[name] = len(path_params)
+                path_params.append(field)
+    for field in path_params:
+        if not field.get("exampleGenerated"):
+            field.pop("exampleGenerated", None)
+            continue
+        warnings.append(
+            {
+                "loc": f"{method} {path} path.{field.get('name')}",
+                "msg": (
+                    f"路径参数 {field.get('name')} 没有 example，"
+                    f"已按类型 {field.get('type')} 使用默认值 {field.get('example')!r}"
+                ),
+            }
+        )
     body = None
     request_body = operation.get("requestBody")
     if isinstance(request_body, dict):
@@ -105,6 +134,28 @@ def _operation(document: dict[str, Any], path: str, method: str, operation: dict
         "body": body,
         "responses": responses,
     }
+
+
+def typed_example(kind: str) -> Any:
+    if kind == "integer":
+        return 1
+    if kind == "number":
+        return 1
+    if kind == "boolean":
+        return True
+    if kind == "array":
+        return []
+    if kind == "object":
+        return {}
+    return "example"
+
+
+def _path_example(parameter: dict[str, Any], schema: dict[str, Any]) -> tuple[Any, bool]:
+    if parameter.get("example") is not None:
+        return parameter["example"], False
+    if schema.get("example") is not None:
+        return schema["example"], False
+    return typed_example(str(schema.get("type") or "string")), True
 
 
 def _schema(document: dict[str, Any], schema: Any, loc: str) -> dict[str, Any]:

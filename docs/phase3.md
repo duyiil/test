@@ -12,7 +12,8 @@
 - 未登录时畸形 JSON 返回 401。登录接口本身仍返回 422。
 - 两小时会话用可替换时钟验证，不是墙钟等待。
 - 模型调用是 OpenAI 兼容格式，默认 `https://api.deepseek.com` 和 `deepseek-chat`。没有 `ZHITEST_LLM_API_KEY` 时生成仍用 Mock，研判状态保持 unavailable。密钥不入库、不写日志。
-- 生成请求使用 JSON mode，并给出 method、relativePath、statusCode、jsonType、equals、range 的示例。模型若仍返回 `request.method/path` 或 `status`、`bodyPath`，会先归一化再校验；单条不合法会写明用例名，合法条目仍保存。生成任务记录实际 provider 和 model。研判会带上失败用例的期望、实际和截断脱敏后的响应片段；研判异常会记脱敏日志，并把 `aiStatus=failed` 和原因写入报告。
+- 生成请求使用 JSON mode，并给出 method、relativePath、statusCode、jsonType、equals、range 的示例。模型若仍返回 `request.method/path` 或 `status`、`bodyPath`，会先归一化再校验；单条不合法会写明用例名，合法条目仍保存。生成任务记录实际 provider 和 model。研判会带上失败用例的期望、实际和截断脱敏后的响应片段；研判异常会记脱敏日志，并把 `aiStatus=failed` 和原因写入报告。研判正文上限是 12000 字，并限制 `max_tokens`；仍然超长时停在句号或换行，末尾写「（已截断）」。`jsonType` 期望 `number` 时接受整数。
+- OpenAPI 路径参数没有 example 时按类型给默认值（integer/number 为 1，string 为 example），并在预览的 warnings 里标明。不再一律写成 `sample`。
 
 部分实现、不能当成完成：
 

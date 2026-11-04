@@ -112,9 +112,16 @@ def _json_type(path: str, expected: Any, state: str, actual: Any) -> dict[str, A
     actual_kind = json_kind(actual)
     if actual_kind == "null" and expected != "null":
         return _fail("jsonType", "null_value", expected, None, f"字段 {path} 为 null")
-    if actual_kind != expected:
+    if not _json_type_matches(expected, actual_kind):
         return _fail("jsonType", "type_mismatch", expected, actual_kind, f"字段 {path} 类型为 {actual_kind}")
     return _ok("jsonType", expected, actual_kind, f"字段 {path or '<root>'} 类型为 {actual_kind}")
+
+
+def _json_type_matches(expected: Any, actual_kind: str) -> bool:
+    if actual_kind == expected:
+        return True
+    # JSON Schema：integer 是 number 的子集。期望 integer 时仍拒绝小数。
+    return expected == "number" and actual_kind == "integer"
 
 
 def _equals(path: str, expected: Any, state: str, actual: Any) -> dict[str, Any]:

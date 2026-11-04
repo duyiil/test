@@ -121,7 +121,9 @@ export function ProjectDetailPage() {
               try {
                 const result = await previewOpenApi(projectId, openApiText);
                 setActionError(null);
-                setPreviewText(result.data.endpoints.map((item) => `${item.method} ${item.path}`).join("\n") || "没有接口");
+                const lines = result.data.endpoints.map((item) => `${item.method} ${item.path}`);
+                const notes = (result.data.warnings ?? []).map((item) => item.msg);
+                setPreviewText([...lines, ...notes].join("\n") || "没有接口");
               } catch (error) {
                 setActionError(errorText(error));
               }
