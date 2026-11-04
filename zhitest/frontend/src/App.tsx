@@ -11,6 +11,9 @@ import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProjectCreatePage } from "./pages/ProjectCreatePage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
+import { ReportPage } from "./pages/ReportPage";
+import { ReviewPage } from "./pages/ReviewPage";
+import { RunPage } from "./pages/RunPage";
 import { RequireAuth } from "./router/RequireAuth";
 import { useUiStore } from "./stores/ui";
 
@@ -51,22 +54,13 @@ export function App() {
               <Route path="projects" element={<ProjectListPage />} />
               <Route path="projects/new" element={<ProjectCreatePage />} />
               <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-              <Route
-                path="reviews"
-                element={<PlaceholderPage title="测试用例审核" note="对应用例审核 US-006，计划在 Sprint2。Phase 1 没有草稿、审核或版本数据。" />}
-              />
+              <Route path="reviews" element={<ReviewPage />} />
               <Route
                 path="suites"
-                element={<PlaceholderPage title="测试用例集" note="用例编排与执行提交尚未实现。不能从这里绕过审核状态。" />}
+                element={<PlaceholderPage title="测试用例集" note="Phase 2 从执行任务页提交全部已确认用例。依赖编排、变量提取不在本阶段。" />}
               />
-              <Route
-                path="runs"
-                element={<PlaceholderPage title="执行任务" note="执行 Worker、进度和取消属于后续主链路，本阶段没有任务数据。" />}
-              />
-              <Route
-                path="reports"
-                element={<PlaceholderPage title="测试报告" note="没有执行记录时不生成报告，也不展示虚构通过率。" />}
-              />
+              <Route path="runs" element={<RunPage />} />
+              <Route path="reports" element={<ReportPage />} />
               <Route
                 path="settings"
                 element={

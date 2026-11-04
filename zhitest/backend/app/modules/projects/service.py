@@ -28,7 +28,30 @@ def validate_base_url(value: str) -> str:
     return raw
 
 
-def project_payload(project: Project) -> dict[str, object]:
+def project_payload(project: Project, db: Session | None = None) -> dict[str, object]:
+    endpoint_count = 0
+    case_count = 0
+    last_run: dict[str, object] | None = None
+    if db is not None:
+        from app.models.testing import ApiEndpoint, TestCase, TestRun
+        from app.modules.testing.service import pass_rate
+
+        endpoint_count = (
+            db.scalar(select(func.count()).select_from(ApiEndpoint).where(ApiEndpoint.project_id == project.id)) or 0
+        )
+        case_count = db.scalar(select(func.count()).select_from(TestCase).where(TestCase.project_id == project.id)) or 0
+        last = db.scalar(
+            select(TestRun).where(TestRun.project_id == project.id).order_by(TestRun.created_at.desc()).limit(1)
+        )
+        if last is not None:
+            rate, text = pass_rate(last.passed_count, last.assertion_failed_count)
+            last_run = {
+                "id": str(last.id),
+                "status": last.status,
+                "finishedAt": last.finished_at.isoformat() if last.finished_at else None,
+                "passRate": rate,
+                "passRateText": text,
+            }
     return {
         "id": str(project.id),
         "ownerId": str(project.owner_id),
@@ -36,9 +59,9 @@ def project_payload(project: Project) -> dict[str, object]:
         "description": project.description,
         "baseUrl": project.base_url,
         "envLabel": project.env_label,
-        "endpointCount": 0,
-        "caseCount": 0,
-        "lastRun": None,
+        "endpointCount": int(endpoint_count),
+        "caseCount": int(case_count),
+        "lastRun": last_run,
         "createdAt": project.created_at.isoformat(),
         "updatedAt": project.updated_at.isoformat(),
     }

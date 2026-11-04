@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { errorText } from "../api/client";
 import { listProjects } from "../api/resources";
-import { formatTime } from "../utils/format";
+import { RUN_LABEL, formatTime } from "../utils/format";
 
 export function ProjectListPage() {
   const navigate = useNavigate();
@@ -58,7 +58,13 @@ export function ProjectListPage() {
                   <Typography.Paragraph ellipsis={{ rows: 2 }}>{project.description || "无描述"}</Typography.Paragraph>
                   <Typography.Text type="secondary">{project.baseUrl}</Typography.Text>
                   <div className="stat-note">接口 {project.endpointCount} · 用例 {project.caseCount}</div>
-                  <div className="stat-note">暂无执行记录 · 更新于 {formatTime(project.updatedAt)}</div>
+                  <div className="stat-note">
+                    {project.lastRun
+                      ? `最近执行 ${RUN_LABEL[project.lastRun.status] ?? project.lastRun.status} · ${project.lastRun.passRateText}`
+                      : "暂无执行记录"}
+                    {" · 更新于 "}
+                    {formatTime(project.updatedAt)}
+                  </div>
                 </Card>
               </Col>
             ))}
