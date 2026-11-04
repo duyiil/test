@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Card, Descriptions, List, Space, Typography } from "antd";
 import { useState } from "react";
+import { DownloadOutlined } from "@ant-design/icons";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { errorText } from "../api/client";
-import { getReport, listReports } from "../api/resources";
+import { downloadReport, getReport, listReports } from "../api/resources";
 import { useUiStore } from "../stores/ui";
 import { RUN_LABEL, formatTime } from "../utils/format";
 
@@ -13,6 +14,7 @@ export function ReportPage() {
   const [params] = useSearchParams();
   const requested = params.get("run");
   const [runId, setRunId] = useState<string | null>(requested);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const reports = useQuery({
     queryKey: ["reports", projectId],
@@ -46,8 +48,29 @@ export function ReportPage() {
         ))}
       </Space>
       {report.isError ? <Alert type="error" showIcon message={errorText(report.error)} /> : null}
-      {data ? (
+      {exportError ? <Alert type="error" showIcon message={exportError} /> : null}
+      {data && activeId ? (
         <>
+          <Space>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                setExportError(null);
+                downloadReport(activeId, "json").catch((error: unknown) => setExportError(error instanceof Error ? error.message : "导出失败"));
+              }}
+            >
+              下载 JSON
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                setExportError(null);
+                downloadReport(activeId, "html").catch((error: unknown) => setExportError(error instanceof Error ? error.message : "导出失败"));
+              }}
+            >
+              下载 HTML
+            </Button>
+          </Space>
           <Alert type={report.data?.aiStatus === "succeeded" ? "success" : "warning"} showIcon message={report.data?.aiMessage} />
           <Card>
             <Descriptions column={{ xs: 1, md: 3 }}>

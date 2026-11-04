@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Drawer, Form, Input, Modal, Space, Table, Tabs, Tag, Typography } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { errorText } from "../api/client";
-import { approveCase, editCase, listCases, rejectCase, submitCase } from "../api/resources";
+import { approveCase, batchReview, editCase, listCases, rejectCase, submitCase } from "../api/resources";
 import type { CaseVersion } from "../api/resources";
 import { useUiStore } from "../stores/ui";
 import { REVIEW_LABEL } from "../utils/format";
@@ -25,6 +25,13 @@ export function ReviewPage() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [batchRejectOpen, setBatchRejectOpen] = useState(false);
+  const [batchReason, setBatchReason] = useState("");
+
+  useEffect(() => {
+    setSelected([]);
+  }, [tab, projectId]);
 
   const query = useQuery({
     queryKey: ["cases", projectId, tab],
@@ -55,6 +62,20 @@ export function ReviewPage() {
     onError: (error: unknown) => setMessage(errorText(error)),
   });
 
+  const batch = useMutation({
+    mutationFn: (action: "approve" | "reject") => batchReview(projectId ?? "", action, selected, batchReason),
+    onSuccess: async (envelope) => {
+      setMessage(null);
+      setSelected([]);
+      setBatchRejectOpen(false);
+      setBatchReason("");
+      setCurrent(null);
+      await refresh();
+      setMessage(`已处理 ${envelope.data.count} 条`);
+    },
+    onError: (error: unknown) => setMessage(errorText(error)),
+  });
+
   if (!projectId) {
     return (
       <Alert
@@ -73,12 +94,29 @@ export function ReviewPage() {
       </Typography.Title>
       <Alert type="info" showIcon message="生成结果先进入草稿。通过后才能执行。修改已确认内容会生成新版本并回到待审核。驳回必须填写原因。" />
       {query.isError ? <Alert type="error" showIcon message={errorText(query.error)} /> : null}
+      {message && !rejectOpen && !batchRejectOpen ? <Alert type={message.startsWith("已处理") ? "success" : "error"} showIcon message={message} /> : null}
       <Tabs activeKey={tab} items={TABS} onChange={setTab} />
+      {tab === "pending_review" ? (
+        <Space>
+          <Button type="primary" disabled={selected.length === 0} loading={batch.isPending} onClick={() => batch.mutate("approve")}>
+            批量通过
+          </Button>
+          <Button danger disabled={selected.length === 0} onClick={() => setBatchRejectOpen(true)}>
+            批量驳回
+          </Button>
+          <Typography.Text type="secondary">已选 {selected.length} 条</Typography.Text>
+        </Space>
+      ) : null}
       <Table
         rowKey="id"
         loading={query.isLoading}
         dataSource={query.data ?? []}
         locale={{ emptyText: "这一栏没有用例" }}
+        rowSelection={
+          tab === "pending_review"
+            ? { selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) }
+            : undefined
+        }
         pagination={{ pageSize: 8 }}
         onRow={(record) => ({
           onClick: () => {
@@ -161,6 +199,16 @@ export function ReviewPage() {
       >
         <Input.TextArea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="必填" rows={4} />
         {message && rejectOpen ? <Alert style={{ marginTop: 12 }} type="error" message={message} /> : null}
+      </Modal>
+      <Modal
+        title="批量驳回"
+        open={batchRejectOpen}
+        onCancel={() => setBatchRejectOpen(false)}
+        onOk={() => batch.mutate("reject")}
+        okButtonProps={{ disabled: batchReason.trim().length === 0, danger: true }}
+        confirmLoading={batch.isPending}
+      >
+        <Input.TextArea value={batchReason} onChange={(event) => setBatchReason(event.target.value)} placeholder="驳回原因，必填" rows={4} />
       </Modal>
     </div>
   );

@@ -54,7 +54,17 @@ export function ProjectListPage() {
           <Row gutter={[16, 16]}>
             {query.data.items.map((project) => (
               <Col xs={24} md={12} xl={8} key={project.id}>
-                <Card hoverable title={project.name} extra={<Tag>{project.envLabel}</Tag>} onClick={() => navigate(`/projects/${project.id}`)}>
+                <Card
+                  hoverable
+                  title={project.name}
+                  extra={
+                    <Space>
+                      {project.status === "archived" ? <Tag color="default">已归档</Tag> : null}
+                      <Tag>{project.envLabel}</Tag>
+                    </Space>
+                  }
+                  onClick={() => navigate(`/projects/${project.id}`)}
+                >
                   <Typography.Paragraph ellipsis={{ rows: 2 }}>{project.description || "无描述"}</Typography.Paragraph>
                   <Typography.Text type="secondary">{project.baseUrl}</Typography.Text>
                   <div className="stat-note">接口 {project.endpointCount} · 用例 {project.caseCount}</div>
