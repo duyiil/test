@@ -6,6 +6,7 @@
 - TC-CONFIG-010 登录成功与失败会写审计，不含模型配置等尚未实现的操作
 """
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -183,6 +184,19 @@ def test_bootstrap_does_not_reset_existing_password(db_session: Session) -> None
     assert refreshed is not None
     assert refreshed.password_hash == changed
     assert not refreshed.password_hash.startswith(ADMIN_PASSWORD)
+
+
+def test_secret_key_changes_session_token_hash(monkeypatch) -> None:
+    from app.core.config import get_settings
+    from app.core.security import hash_token
+
+    plain = hashlib.sha256(b"session-token").hexdigest()
+    get_settings.cache_clear()
+    monkeypatch.setenv("ZHITEST_SECRET_KEY", "unit-test-secret")
+    try:
+        assert hash_token("session-token") != plain
+    finally:
+        get_settings.cache_clear()
 
 
 def test_session_ttl_setting_matches_team_case() -> None:

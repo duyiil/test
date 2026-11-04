@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import secrets
 
@@ -54,4 +55,12 @@ def new_session_token() -> str:
 
 
 def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    """没有密钥时保持原来的 SHA-256。配置了 ZHITEST_SECRET_KEY 时改为 HMAC。"""
+
+    from app.core.config import get_settings
+
+    secret = get_settings().secret_key
+    raw = token.encode("utf-8")
+    if secret:
+        return hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+    return hashlib.sha256(raw).hexdigest()
