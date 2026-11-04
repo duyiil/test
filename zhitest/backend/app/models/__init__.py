@@ -8,6 +8,7 @@ from app.models.platform import (
     ProjectEnvironment,
     ProjectMember,
     Schedule,
+    ScheduleEvent,
     Suite,
     SuiteItem,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "ProjectEnvironment",
     "ProjectMember",
     "Schedule",
+    "ScheduleEvent",
     "Suite",
     "SuiteItem",
     "AuditLog",

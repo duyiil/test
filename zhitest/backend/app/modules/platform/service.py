@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import uuid
 from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.clock import utcnow
@@ -17,6 +19,7 @@ from app.models.platform import (
     ProjectEnvironment,
     ProjectMember,
     Schedule,
+    ScheduleEvent,
     Suite,
     SuiteItem,
 )
@@ -208,7 +211,10 @@ def create_suite(
         raise AppError(422, "VALIDATION_ERROR", "用例集名称不能为空")
     suite = Suite(project_id=project.id, name=name.strip(), is_regression=is_regression, created_at=utcnow())
     db.add(suite)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        raise AppError(409, "CONFLICT", "用例集名称已存在") from exc
     for index, case_id in enumerate(case_ids):
         case = db.get(TestCase, case_id)
         if case is None or case.project_id != project.id:
@@ -255,18 +261,52 @@ def list_suites(db: Session, user: User, project_id: uuid.UUID) -> list[dict[str
     return payload
 
 
+def environment_payload(env: ProjectEnvironment) -> dict[str, Any]:
+    return {
+        "id": str(env.id),
+        "name": env.name,
+        "baseUrl": env.base_url,
+        "isActive": env.is_active,
+        "createdAt": env.created_at.isoformat(),
+    }
+
+
+def list_environments(db: Session, user: User, project_id: uuid.UUID) -> list[dict[str, Any]]:
+    get_owned_project(db, user, project_id)
+    rows = list(
+        db.scalars(
+            select(ProjectEnvironment).where(ProjectEnvironment.project_id == project_id).order_by(ProjectEnvironment.created_at)
+        ).all()
+    )
+    return [environment_payload(item) for item in rows]
+
+
 def add_environment(db: Session, user: User, project_id: uuid.UUID, name: str, base_url: str) -> ProjectEnvironment:
     project = get_owned_project(db, user, project_id)
+    cleaned = name.strip()
+    if not cleaned:
+        raise AppError(422, "VALIDATION_ERROR", "环境名称必填")
     env = ProjectEnvironment(
         project_id=project.id,
-        name=name.strip(),
+        name=cleaned,
         base_url=validate_base_url(base_url),
         is_active=False,
         created_at=utcnow(),
     )
     db.add(env)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        raise AppError(409, "CONFLICT", "环境名称已存在") from exc
     return env
+
+
+def delete_environment(db: Session, user: User, project_id: uuid.UUID, environment_id: uuid.UUID) -> None:
+    get_owned_project(db, user, project_id)
+    env = db.get(ProjectEnvironment, environment_id)
+    if env is None or env.project_id != project_id:
+        raise AppError(404, "NOT_FOUND", "环境不存在")
+    db.delete(env)
 
 
 def activate_environment(db: Session, user: User, project_id: uuid.UUID, environment_id: uuid.UUID) -> None:
@@ -283,6 +323,12 @@ def activate_environment(db: Session, user: User, project_id: uuid.UUID, environ
 def archive_project(db: Session, user: User, project_id: uuid.UUID) -> Project:
     project = get_owned_project(db, user, project_id)
     project.status = "archived"
+    return project
+
+
+def restore_project(db: Session, user: User, project_id: uuid.UUID) -> Project:
+    project = get_owned_project(db, user, project_id)
+    project.status = "active"
     return project
 
 
@@ -303,10 +349,63 @@ def add_member(db: Session, user: User, project_id: uuid.UUID, username: str, ro
     member_user = db.scalar(select(User).where(User.username == username.strip()))
     if member_user is None:
         raise AppError(404, "NOT_FOUND", "用户不存在")
+    if member_user.id == project.owner_id:
+        raise AppError(409, "CONFLICT", "项目所有者不需要再添加为成员")
     row = ProjectMember(project_id=project.id, user_id=member_user.id, role=role, created_at=utcnow())
     db.add(row)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        raise AppError(409, "CONFLICT", "该用户已是项目成员") from exc
     return row
+
+
+def list_members(db: Session, user: User, project_id: uuid.UUID) -> dict[str, Any]:
+    project = get_owned_project(db, user, project_id)
+    owner = db.get(User, project.owner_id)
+    rows = list(
+        db.scalars(select(ProjectMember).where(ProjectMember.project_id == project.id).order_by(ProjectMember.created_at)).all()
+    )
+    items = []
+    for row in rows:
+        member = db.get(User, row.user_id)
+        items.append(
+            {
+                "id": str(row.id),
+                "userId": str(row.user_id),
+                "username": member.username if member else "",
+                "displayName": member.display_name if member else "",
+                "role": row.role,
+            }
+        )
+    return {
+        "owner": {
+            "userId": str(project.owner_id),
+            "username": owner.username if owner else "",
+            "displayName": owner.display_name if owner else "",
+            "role": "owner",
+        },
+        "items": items,
+    }
+
+
+def update_member_role(db: Session, user: User, project_id: uuid.UUID, member_id: uuid.UUID, role: str) -> ProjectMember:
+    get_owned_project(db, user, project_id)
+    if role not in {"tester", "readonly"}:
+        raise AppError(422, "VALIDATION_ERROR", "角色只能是 tester 或 readonly")
+    row = db.get(ProjectMember, member_id)
+    if row is None or row.project_id != project_id:
+        raise AppError(404, "NOT_FOUND", "成员不存在")
+    row.role = role
+    return row
+
+
+def remove_member(db: Session, user: User, project_id: uuid.UUID, member_id: uuid.UUID) -> None:
+    get_owned_project(db, user, project_id)
+    row = db.get(ProjectMember, member_id)
+    if row is None or row.project_id != project_id:
+        raise AppError(404, "NOT_FOUND", "成员不存在")
+    db.delete(row)
 
 
 def batch_review(
@@ -336,8 +435,35 @@ def batch_review(
 
 def list_notifications(db: Session, user: User) -> list[Notification]:
     return list(
-        db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(30)).all()
+        db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(50)).all()
     )
+
+
+def notification_payload(item: Notification) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "title": item.title,
+        "body": item.body,
+        "readAt": item.read_at.isoformat() if item.read_at else None,
+        "createdAt": item.created_at.isoformat(),
+    }
+
+
+def mark_notification_read(db: Session, user: User, notification_id: uuid.UUID) -> Notification:
+    item = db.get(Notification, notification_id)
+    if item is None or item.user_id != user.id:
+        raise AppError(404, "NOT_FOUND", "通知不存在")
+    if item.read_at is None:
+        item.read_at = utcnow()
+    return item
+
+
+def mark_all_notifications_read(db: Session, user: User) -> int:
+    rows = list(db.scalars(select(Notification).where(Notification.user_id == user.id, Notification.read_at.is_(None))).all())
+    now = utcnow()
+    for item in rows:
+        item.read_at = now
+    return len(rows)
 
 
 def notify(db: Session, user_id: uuid.UUID | None, title: str, body: str) -> None:
@@ -369,11 +495,43 @@ def record_defect_candidates(db: Session, run: TestRun) -> int:
     return created
 
 
+DEFECT_STATUSES = {"candidate", "watching", "dismissed"}
+
+
+def defect_payload(item: DefectCandidate) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "projectId": str(item.project_id),
+        "runId": str(item.run_id) if item.run_id else None,
+        "title": item.title,
+        "status": item.status,
+        "detail": item.detail,
+        "createdAt": item.created_at.isoformat(),
+        "label": "候选缺陷，不是已确认缺陷或漏洞",
+    }
+
+
 def list_defects(db: Session, user: User, project_id: uuid.UUID) -> list[DefectCandidate]:
     get_owned_project(db, user, project_id)
     return list(
         db.scalars(select(DefectCandidate).where(DefectCandidate.project_id == project_id).order_by(DefectCandidate.created_at.desc())).all()
     )
+
+
+def get_defect(db: Session, user: User, defect_id: uuid.UUID) -> DefectCandidate:
+    item = db.get(DefectCandidate, defect_id)
+    if item is None:
+        raise AppError(404, "NOT_FOUND", "候选缺陷不存在")
+    get_owned_project(db, user, item.project_id)
+    return item
+
+
+def update_defect_status(db: Session, user: User, defect_id: uuid.UUID, status: str) -> DefectCandidate:
+    if status not in DEFECT_STATUSES:
+        raise AppError(422, "VALIDATION_ERROR", "候选缺陷不能标成已确认缺陷。可选状态：候选、继续观察、已排除")
+    item = get_defect(db, user, defect_id)
+    item.status = status
+    return item
 
 
 def save_schedule(db: Session, user: User, suite_id: uuid.UUID, cron: str) -> Schedule:
@@ -387,7 +545,89 @@ def save_schedule(db: Session, user: User, suite_id: uuid.UUID, cron: str) -> Sc
     row = Schedule(suite_id=suite.id, cron=cron, enabled=True, next_run_at=utcnow(), created_at=utcnow())
     db.add(row)
     db.flush()
+    _schedule_event(db, row.id, "created", f"已保存 cron：{cron}")
     return row
+
+
+def _schedule_event(db: Session, schedule_id: uuid.UUID, kind: str, message: str, run_id: uuid.UUID | None = None) -> None:
+    db.add(ScheduleEvent(schedule_id=schedule_id, kind=kind, message=message, run_id=run_id, created_at=utcnow()))
+
+
+def list_schedules(db: Session, user: User, project_id: uuid.UUID) -> list[dict[str, Any]]:
+    get_owned_project(db, user, project_id)
+    suites = list(db.scalars(select(Suite).where(Suite.project_id == project_id)).all())
+    by_id = {item.id: item for item in suites}
+    if not by_id:
+        return []
+    rows = list(
+        db.scalars(select(Schedule).where(Schedule.suite_id.in_(by_id)).order_by(Schedule.created_at.desc())).all()
+    )
+    payload = []
+    for row in rows:
+        suite = by_id[row.suite_id]
+        payload.append(
+            {
+                "id": str(row.id),
+                "suiteId": str(row.suite_id),
+                "suiteName": suite.name,
+                "isRegression": suite.is_regression,
+                "cron": row.cron,
+                "enabled": row.enabled,
+                "nextRunAt": row.next_run_at.isoformat() if row.next_run_at else None,
+                "createdAt": row.created_at.isoformat(),
+            }
+        )
+    return payload
+
+
+def update_schedule(
+    db: Session,
+    user: User,
+    schedule_id: uuid.UUID,
+    *,
+    cron: str | None,
+    enabled: bool | None,
+) -> Schedule:
+    row = db.get(Schedule, schedule_id)
+    if row is None:
+        raise AppError(404, "NOT_FOUND", "计划不存在")
+    suite = db.get(Suite, row.suite_id)
+    if suite is None:
+        raise AppError(404, "NOT_FOUND", "用例集不存在")
+    get_owned_project(db, user, suite.project_id)
+    if cron is not None:
+        parts = cron.split()
+        if len(parts) != 5:
+            raise AppError(422, "VALIDATION_ERROR", "cron 需要 5 段")
+        row.cron = cron
+        _schedule_event(db, row.id, "updated", f"已修改 cron：{cron}")
+    if enabled is not None and enabled != row.enabled:
+        row.enabled = enabled
+        _schedule_event(db, row.id, "enabled" if enabled else "disabled", "已启用" if enabled else "已停用")
+    return row
+
+
+def list_schedule_events(db: Session, user: User, schedule_id: uuid.UUID) -> list[dict[str, Any]]:
+    row = db.get(Schedule, schedule_id)
+    if row is None:
+        raise AppError(404, "NOT_FOUND", "计划不存在")
+    suite = db.get(Suite, row.suite_id)
+    if suite is None:
+        raise AppError(404, "NOT_FOUND", "用例集不存在")
+    get_owned_project(db, user, suite.project_id)
+    events = list(
+        db.scalars(select(ScheduleEvent).where(ScheduleEvent.schedule_id == row.id).order_by(ScheduleEvent.created_at.desc())).all()
+    )
+    return [
+        {
+            "id": str(item.id),
+            "kind": item.kind,
+            "message": item.message,
+            "runId": str(item.run_id) if item.run_id else None,
+            "createdAt": item.created_at.isoformat(),
+        }
+        for item in events
+    ]
 
 
 def dispatch_due_schedules(db: Session, user: User) -> int:
@@ -403,7 +643,7 @@ def dispatch_due_schedules(db: Session, user: User) -> int:
             continue
         try:
             versions = suite_versions(db, suite)
-            prepare_run(
+            run = prepare_run(
                 db,
                 user,
                 suite.project_id,
@@ -414,8 +654,9 @@ def dispatch_due_schedules(db: Session, user: User) -> int:
                 idempotency_key=None,
             )
             count += 1
-        except AppError:
-            pass
+            _schedule_event(db, item.id, "dispatched", "已入队一次执行", run.id)
+        except AppError as exc:
+            _schedule_event(db, item.id, "skipped", exc.message)
         item.next_run_at = None
     return count
 
@@ -553,12 +794,12 @@ def report_html(payload: dict[str, Any]) -> str:
     for item in payload.get("results") or []:
         request = item.get("request") or {}
         rows.append(
-            f"<li>{request.get('method', '')} {request.get('url', '')} {item.get('status')} {item.get('errorMessage') or ''}</li>"
+            "<li>"
+            + html.escape(f"{request.get('method', '')} {request.get('url', '')} {item.get('status')} {item.get('errorMessage') or ''}")
+            + "</li>"
         )
-    return (
-        "<html><body><h1>数据报告</h1>"
-        f"<p>通过率 {payload.get('passRateText')}</p><ul>{''.join(rows)}</ul></body></html>"
-    )
+    rate = html.escape(str(payload.get("passRateText") or ""))
+    return f"<html><body><h1>数据报告</h1><p>通过率 {rate}</p><ul>{''.join(rows)}</ul></body></html>"
 
 
 def _reject_archived(project: Project) -> None:

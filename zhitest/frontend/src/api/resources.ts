@@ -219,3 +219,168 @@ export function listSuites(projectId: string) {
 export function runSuite(suiteId: string, confirmWrites: boolean) {
   return unwrap<RunItem>(http.post(`/suites/${suiteId}/runs`, { confirmWrites }));
 }
+
+export interface EnvironmentItem {
+  id: string;
+  name: string;
+  baseUrl: string;
+  isActive: boolean;
+}
+
+export interface MemberItem {
+  id: string;
+  username: string;
+  displayName: string;
+  role: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  title: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface DefectItem {
+  id: string;
+  projectId: string;
+  runId: string | null;
+  title: string;
+  status: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+  label: string;
+}
+
+export interface ScheduleItem {
+  id: string;
+  suiteId: string;
+  suiteName: string;
+  isRegression: boolean;
+  cron: string;
+  enabled: boolean;
+  nextRunAt: string | null;
+  createdAt: string;
+}
+
+export interface ScheduleEventItem {
+  id: string;
+  kind: string;
+  message: string;
+  runId: string | null;
+  createdAt: string;
+}
+
+export function listEnvironments(projectId: string) {
+  return unwrap<{ items: EnvironmentItem[] }>(http.get(`/projects/${projectId}/environments`));
+}
+
+export function createEnvironment(projectId: string, body: { name: string; baseUrl: string }) {
+  return unwrap<EnvironmentItem>(http.post(`/projects/${projectId}/environments`, body));
+}
+
+export function activateEnvironment(projectId: string, environmentId: string) {
+  return unwrap<{ active: string }>(http.post(`/projects/${projectId}/environments/${environmentId}/activate`));
+}
+
+export function deleteEnvironment(projectId: string, environmentId: string) {
+  return unwrap<{ deleted: boolean }>(http.delete(`/projects/${projectId}/environments/${environmentId}`));
+}
+
+export function archiveProject(projectId: string) {
+  return unwrap<{ id: string; status: string }>(http.post(`/projects/${projectId}/archive`));
+}
+
+export function restoreProject(projectId: string) {
+  return unwrap<{ id: string; status: string }>(http.post(`/projects/${projectId}/restore`));
+}
+
+export function deleteProject(projectId: string) {
+  return unwrap<{ deleted: boolean }>(http.post(`/projects/${projectId}/delete`, { confirm: true }));
+}
+
+export function listMembers(projectId: string) {
+  return unwrap<{ owner: MemberItem & { userId: string }; items: MemberItem[] }>(http.get(`/projects/${projectId}/members`));
+}
+
+export function addMember(projectId: string, username: string, role: string) {
+  return unwrap<{ id: string; role: string }>(http.post(`/projects/${projectId}/members`, { username, role }));
+}
+
+export function updateMemberRole(projectId: string, memberId: string, role: string) {
+  return unwrap<{ id: string; role: string }>(http.post(`/projects/${projectId}/members/${memberId}/role`, { role }));
+}
+
+export function removeMember(projectId: string, memberId: string) {
+  return unwrap<{ deleted: boolean }>(http.delete(`/projects/${projectId}/members/${memberId}`));
+}
+
+export function batchReview(projectId: string, action: "approve" | "reject", versionIds: string[], reason?: string) {
+  return unwrap<{ count: number }>(http.post(`/projects/${projectId}/reviews/batch`, { action, versionIds, reason }));
+}
+
+export function listNotifications() {
+  return unwrap<{ items: NotificationItem[]; unreadCount: number }>(http.get("/notifications"));
+}
+
+export function markNotificationRead(id: string) {
+  return unwrap<NotificationItem>(http.post(`/notifications/${id}/read`));
+}
+
+export function markAllNotificationsRead() {
+  return unwrap<{ count: number }>(http.post("/notifications/read-all"));
+}
+
+export function listDefects(projectId: string) {
+  return unwrap<{ items: DefectItem[]; label: string }>(http.get(`/projects/${projectId}/defects`));
+}
+
+export function getDefect(id: string) {
+  return unwrap<DefectItem>(http.get(`/defects/${id}`));
+}
+
+export function updateDefectStatus(id: string, status: string) {
+  return unwrap<DefectItem>(http.post(`/defects/${id}/status`, { status }));
+}
+
+export function listSchedules(projectId: string) {
+  return unwrap<{ items: ScheduleItem[]; note: string }>(http.get(`/projects/${projectId}/schedules`));
+}
+
+export function createSchedule(suiteId: string, cron: string) {
+  return unwrap<{ id: string; cron: string; enabled: boolean; note: string }>(http.post(`/suites/${suiteId}/schedules`, { cron }));
+}
+
+export function updateSchedule(scheduleId: string, body: { cron?: string; enabled?: boolean }) {
+  return unwrap<{ id: string; cron: string; enabled: boolean }>(http.post(`/schedules/${scheduleId}`, body));
+}
+
+export function listScheduleEvents(scheduleId: string) {
+  return unwrap<{ items: ScheduleEventItem[] }>(http.get(`/schedules/${scheduleId}/events`));
+}
+
+export function createSuite(projectId: string, body: { name: string; caseIds: string[]; isRegression: boolean }) {
+  return unwrap<{ id: string; name: string; isRegression: boolean }>(http.post(`/projects/${projectId}/suites`, body));
+}
+
+export async function downloadReport(runId: string, format: "html" | "json") {
+  const response = await fetch(`/api/v1/runs/${runId}/report/export?format=${format}`, { credentials: "include" });
+  if (!response.ok) {
+    let message = "导出失败";
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      message = "导出失败";
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `zhitest-report-${runId.slice(0, 8)}.${format === "html" ? "html" : "json"}`;
+  link.click();
+  URL.revokeObjectURL(url);
+}

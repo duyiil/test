@@ -54,7 +54,7 @@ def _truncate() -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE TABLE schedules, defect_candidates, notifications, idempotency_records, "
+                "TRUNCATE TABLE schedule_events, schedules, defect_candidates, notifications, idempotency_records, "
                 "suite_items, suites, project_members, project_environments, data_reports, run_results, "
                 "test_runs, review_events, test_case_versions, generation_targets, test_cases, "
                 "generation_tasks, api_endpoints, audit_logs, projects, user_sessions, users "
