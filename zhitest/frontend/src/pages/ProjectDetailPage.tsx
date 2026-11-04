@@ -162,7 +162,7 @@ export function ProjectDetailPage() {
         <Alert
           type={generation.data.status === "failed" ? "error" : "info"}
           showIcon
-          message={`生成任务 ${generation.data.status}（${generation.data.provider}）成功 ${generation.data.succeededCount} / 失败 ${generation.data.failedCount}`}
+          message={`生成任务 ${generation.data.status}（${generation.data.model ? `${generation.data.provider} / ${generation.data.model}` : generation.data.provider}）成功 ${generation.data.succeededCount} / 失败 ${generation.data.failedCount}`}
         />
       ) : null}
       <Card title="接口">

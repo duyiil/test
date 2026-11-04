@@ -111,9 +111,14 @@ def create_generation_task(db: Session, user: User, project_id: uuid.UUID, ip: s
     )
     if not endpoints:
         raise AppError(422, "VALIDATION_ERROR", "项目还没有接口契约，无法生成用例")
+    from app.modules.ai.llm_provider import intended_generation
+
+    provider_name, model_name = intended_generation()
     task = GenerationTask(
         project_id=project.id,
         status="queued",
+        provider=provider_name,
+        model_name=model_name,
         created_by=user.id,
         created_at=datetime.now(timezone.utc),
     )
@@ -127,7 +132,7 @@ def create_generation_task(db: Session, user: User, project_id: uuid.UUID, ip: s
         actor_id=user.id,
         resource_type="generation_task",
         resource_id=str(task.id),
-        detail={"endpointCount": len(endpoints), "provider": "mock"},
+        detail={"endpointCount": len(endpoints), "provider": provider_name, "model": model_name},
         ip=ip,
     )
     return task
@@ -139,7 +144,8 @@ def generation_payload(db: Session, task: GenerationTask) -> dict[str, object]:
         "id": str(task.id),
         "projectId": str(task.project_id),
         "status": task.status,
-        "provider": "mock",
+        "provider": task.provider,
+        "model": task.model_name,
         "targetCount": len(targets),
         "succeededCount": sum(1 for item in targets if item.status == "succeeded"),
         "failedCount": sum(1 for item in targets if item.status == "failed"),
@@ -470,12 +476,20 @@ def _create_run_body(
     from app.execution.variables import order_versions
 
     ordered = order_versions(versions)
+    origins = {str(item.origin or "") for item in ordered}
+    provider_name = "llm" if "llm" in origins else "mock"
+    model_name = None
+    if provider_name == "llm":
+        from app.core.config import get_settings
+
+        model_name = get_settings().llm_model
     snapshot = {
         "baseUrl": base_url,
         "envLabel": project.env_label,
         "caseVersionIds": [str(item.id) for item in ordered],
         "specVersions": sorted({item.spec_version for item in ordered}),
-        "provider": "mock",
+        "provider": provider_name,
+        "model": model_name,
         "suiteId": str(suite_id) if suite_id else None,
     }
     run = TestRun(
@@ -616,6 +630,13 @@ def _write_report(db: Session, run: TestRun) -> DataReport:
         return existing
     rate, text = pass_rate(run.passed_count, run.assertion_failed_count)
     results = list(db.scalars(select(RunResult).where(RunResult.run_id == run.id).order_by(RunResult.ordinal)).all())
+    version_ids = [item.case_version_id for item in results]
+    version_map: dict[uuid.UUID, TestCaseVersion] = {}
+    if version_ids:
+        version_map = {
+            item.id: item
+            for item in db.scalars(select(TestCaseVersion).where(TestCaseVersion.id.in_(version_ids))).all()
+        }
     payload = {
         "runId": str(run.id),
         "projectId": str(run.project_id),
@@ -634,6 +655,9 @@ def _write_report(db: Session, run: TestRun) -> DataReport:
         "results": [
             {
                 "caseVersionId": str(item.case_version_id),
+                "name": version_map[item.case_version_id].name if item.case_version_id in version_map else "",
+                "method": version_map[item.case_version_id].method if item.case_version_id in version_map else None,
+                "path": version_map[item.case_version_id].relative_path if item.case_version_id in version_map else None,
                 "status": item.status,
                 "responseStatus": item.response_status,
                 "errorClass": item.error_class,
@@ -651,18 +675,14 @@ def _write_report(db: Session, run: TestRun) -> DataReport:
 
     settings = get_settings()
     if settings.llm_api_key:
-        try:
-            from app.modules.ai.llm_provider import LLMGenerationProvider
+        from app.modules.ai.llm_provider import apply_triage
 
-            ai_message = LLMGenerationProvider(
-                base_url=settings.llm_base_url,
-                model=settings.llm_model,
-                api_key=settings.llm_api_key,
-            ).triage(payload)
-            ai_status = "succeeded"
-        except Exception:
-            ai_status = "failed"
-            ai_message = "研判失败，数据报告仍可查看"
+        ai_status, ai_message = apply_triage(
+            payload,
+            base_url=settings.llm_base_url,
+            model=settings.llm_model,
+            api_key=settings.llm_api_key,
+        )
     report = DataReport(
         run_id=run.id,
         payload=payload,
@@ -680,16 +700,46 @@ def _write_report(db: Session, run: TestRun) -> DataReport:
 
 
 def validate_generated_case(case: dict[str, Any], contract: dict[str, Any]) -> None:
+    name = str(case.get("name") or "未命名")
     method = str(case.get("method") or "")
     if method not in METHODS:
-        raise ValueError("无效请求方法")
-    if not case.get("assertions"):
-        raise ValueError("无断言用例")
+        raise ValueError(f"用例「{name}」: 无效请求方法 {method!r}")
+    assertions = case.get("assertions")
+    if not isinstance(assertions, list) or not assertions:
+        raise ValueError(f"用例「{name}」: 无断言用例")
+    allowed = {"statusCode", "jsonType", "equals", "range"}
+    for assertion in assertions:
+        kind = assertion.get("type") if isinstance(assertion, dict) else None
+        if kind not in allowed:
+            raise ValueError(f"用例「{name}」: 不支持的断言类型 {kind!r}")
     if case.get("relativePath") != contract.get("path"):
-        raise ValueError("用例引用了不存在的接口路径")
+        raise ValueError(
+            f"用例「{name}」: 路径 {case.get('relativePath')!r} 与契约 {contract.get('path')!r} 不一致"
+        )
     blob = str(case)
     if "{{" in blob:
-        raise ValueError("存在未声明变量")
+        raise ValueError(f"用例「{name}」: 存在未声明变量")
+
+
+def partition_generated_cases(
+    cases: list[Any], contract: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from app.modules.ai.llm_provider import normalize_generated_case
+
+    accepted: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for item in cases:
+        if not isinstance(item, dict):
+            errors.append("用例「未命名」: 不是对象")
+            continue
+        try:
+            normalized = normalize_generated_case(item)
+            validate_generated_case(normalized, contract)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        accepted.append(normalized)
+    return accepted, errors
 
 
 def process_generation_task(db: Session, task_id: uuid.UUID, provider: MockGenerationProvider | None = None) -> None:
@@ -703,9 +753,12 @@ def process_generation_task(db: Session, task_id: uuid.UUID, provider: MockGener
     if task.status == "queued":
         task.status = "running"
         task.started_at = datetime.now(timezone.utc)
-        db.commit()
     elif task.status != "running":
         return
+    task.provider = str(getattr(provider, "name", None) or "mock")
+    model_name = getattr(provider, "model", None)
+    task.model_name = str(model_name) if model_name else None
+    db.commit()
     project = db.get(Project, task.project_id)
     target_ids = list(
         db.scalars(select(GenerationTarget.id).where(GenerationTarget.task_id == task.id, GenerationTarget.status == "queued")).all()
@@ -723,16 +776,16 @@ def process_generation_task(db: Session, task_id: uuid.UUID, provider: MockGener
             db.commit()
             try:
                 drafted = provider.generate(project_name=project.name, contract=endpoint.contract)
-                if not drafted:
-                    raise ValueError("生成结果为空")
-                for item in drafted:
-                    validate_generated_case(item, endpoint.contract)
+                accepted, errors = partition_generated_cases(list(drafted or []), endpoint.contract)
+                if not accepted:
+                    raise ValueError("；".join(errors) if errors else "生成结果为空")
+                for item in accepted:
                     _store_draft(db, project, endpoint, item, task.created_by)
                 current = db.get(GenerationTarget, target_id)
                 if current is None:
                     raise ValueError("生成目标丢失")
                 current.status = "succeeded"
-                current.error = None
+                current.error = ("部分用例未采用：" + "；".join(errors))[:500] if errors else None
                 db.commit()
                 saved = True
                 break
