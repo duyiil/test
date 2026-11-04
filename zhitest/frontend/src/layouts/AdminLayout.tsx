@@ -11,7 +11,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Select, Space, Switch, theme, Typography } from "antd";
+import { Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Select, Space, Switch, theme } from "antd";
 import { useEffect, useMemo } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { listProjects } from "../api/resources";
@@ -81,8 +81,8 @@ export function AdminLayout() {
     <Layout style={{ minHeight: "100vh" }}>
       <Sider breakpoint="lg" collapsedWidth={64} width={232} theme="dark">
         <div className="sider-logo">
-          <span>智</span>
-          <Typography.Text style={{ color: "#fff" }}>智测 ZhiTest</Typography.Text>
+          <span className="sider-mark">智</span>
+          <span className="sider-title">智测 ZhiTest</span>
         </div>
         <Menu
           theme="dark"
