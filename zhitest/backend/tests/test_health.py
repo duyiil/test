@@ -14,7 +14,7 @@ def test_health_is_public_and_uses_envelope(client: TestClient) -> None:
     assert body["requestId"] == "req-health-1"
     assert body["data"]["status"] == "ok"
     assert body["data"]["database"] == "ok"
-    assert body["data"]["phase"] == "phase1"
+    assert body["data"]["phase"] == "phase2"
 
 
 def test_invalid_request_id_is_replaced(client: TestClient) -> None:

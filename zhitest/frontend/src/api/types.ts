@@ -14,7 +14,13 @@ export interface Project {
   envLabel: string;
   endpointCount: number;
   caseCount: number;
-  lastRun: null;
+  lastRun: {
+    id: string;
+    status: string;
+    finishedAt: string | null;
+    passRate: number | null;
+    passRateText: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +30,16 @@ export interface ProjectPage {
   page: number;
   pageSize: number;
   total: number;
+}
+
+export interface RecentTask {
+  id: string;
+  projectId: string;
+  projectName: string;
+  status: string;
+  createdAt: string;
+  passRate: number | null;
+  passRateText: string;
 }
 
 export interface Activity {
@@ -44,7 +60,7 @@ export interface DashboardSummary {
   passRateText: string;
   executionDataAvailable: boolean;
   metricsNote: string;
-  recentTasks: [];
+  recentTasks: RecentTask[];
   recentProjects: Project[];
   recentActivities: Activity[];
 }

@@ -57,7 +57,7 @@ def create(
         env_label=body.env_label,
         ip=client_ip(request, settings),
     )
-    return success(project_payload(project), "创建成功")
+    return success(project_payload(project, db), "创建成功")
 
 
 @router.get("")
@@ -71,7 +71,7 @@ def list_my_projects(
     rows, total = list_projects(db, user, q=q.strip() if q else None, page=page, page_size=page_size)
     return success(
         {
-            "items": [project_payload(item) for item in rows],
+            "items": [project_payload(item, db) for item in rows],
             "page": page,
             "pageSize": page_size,
             "total": total,
@@ -86,4 +86,4 @@ def detail(
     user: User = Depends(get_current_user),
 ) -> dict[str, object]:
     project = get_owned_project(db, user, project_id)
-    return success(project_payload(project))
+    return success(project_payload(project, db))

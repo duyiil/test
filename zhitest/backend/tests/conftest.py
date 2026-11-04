@@ -50,7 +50,13 @@ def client() -> Generator[TestClient, None, None]:
 
 def _truncate() -> None:
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE audit_logs, projects, user_sessions, users RESTART IDENTITY CASCADE"))
+        conn.execute(
+            text(
+                "TRUNCATE TABLE data_reports, run_results, test_runs, review_events, "
+                "test_case_versions, generation_targets, test_cases, generation_tasks, "
+                "api_endpoints, audit_logs, projects, user_sessions, users RESTART IDENTITY CASCADE"
+            )
+        )
 
 
 @pytest.fixture
