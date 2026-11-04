@@ -110,6 +110,14 @@ body,
   font-size: 12px;
 }
 
+.json-preview {
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  background: rgba(15, 35, 68, 0.04);
+  white-space: pre-wrap;
+}
+
 @media (max-width: 1024px) {
   .login-shell {
     grid-template-columns: 1fr;
