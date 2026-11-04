@@ -87,7 +87,7 @@ export function ProjectDetailPage() {
       <Alert
         type="info"
         showIcon
-        message="演示契约是本阶段作者编写的，不是团队缺失的原文档。生成使用 Mock Provider。多环境、归档和删除仍未实现。"
+        message="演示契约是本阶段作者编写的，不是团队缺失的原文档。没有配置密钥时生成仍使用 Mock Provider。"
       />
       {actionError ? <Alert type="error" showIcon message={actionError} /> : null}
       <Space wrap>
@@ -99,6 +99,9 @@ export function ProjectDetailPage() {
         </Button>
         <Button onClick={() => navigate("/reviews")}>去审核</Button>
         <Button onClick={() => navigate("/suites")}>用例集</Button>
+        <Button onClick={() => navigate(`/projects/${projectId}/manage`)}>环境与成员</Button>
+        <Button onClick={() => navigate("/defects")}>候选缺陷</Button>
+        <Button onClick={() => navigate("/schedules")}>定时执行</Button>
         <Button
           onClick={async () => {
             try {

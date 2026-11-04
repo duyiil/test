@@ -12,7 +12,11 @@ const ProjectListPage = lazy(() => import("./pages/ProjectListPage").then((modul
 const ProjectCreatePage = lazy(() => import("./pages/ProjectCreatePage").then((module) => ({ default: module.ProjectCreatePage })));
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage").then((module) => ({ default: module.ProjectDetailPage })));
 const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
+const ProjectManagePage = lazy(() => import("./pages/ProjectManagePage").then((module) => ({ default: module.ProjectManagePage })));
 const SuitePage = lazy(() => import("./pages/SuitePage").then((module) => ({ default: module.SuitePage })));
+const DefectPage = lazy(() => import("./pages/DefectPage").then((module) => ({ default: module.DefectPage })));
+const SchedulePage = lazy(() => import("./pages/SchedulePage").then((module) => ({ default: module.SchedulePage })));
+const NotificationPage = lazy(() => import("./pages/NotificationPage").then((module) => ({ default: module.NotificationPage })));
 const RunPage = lazy(() => import("./pages/RunPage").then((module) => ({ default: module.RunPage })));
 const ReportPage = lazy(() => import("./pages/ReportPage").then((module) => ({ default: module.ReportPage })));
 const AccountPage = lazy(() => import("./pages/AccountPage").then((module) => ({ default: module.AccountPage })));
@@ -57,6 +61,10 @@ export function App() {
               <Route path="projects" element={<ProjectListPage />} />
               <Route path="projects/new" element={<ProjectCreatePage />} />
               <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+              <Route path="projects/:projectId/manage" element={<ProjectManagePage />} />
+              <Route path="defects" element={<DefectPage />} />
+              <Route path="schedules" element={<SchedulePage />} />
+              <Route path="notifications" element={<NotificationPage />} />
               <Route path="reviews" element={<ReviewPage />} />
               <Route path="suites" element={<SuitePage />} />
               <Route path="runs" element={<RunPage />} />

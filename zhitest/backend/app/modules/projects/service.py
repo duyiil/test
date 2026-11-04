@@ -59,6 +59,7 @@ def project_payload(project: Project, db: Session | None = None) -> dict[str, ob
         "description": project.description,
         "baseUrl": project.base_url,
         "envLabel": project.env_label,
+        "status": project.status,
         "endpointCount": int(endpoint_count),
         "caseCount": int(case_count),
         "lastRun": last_run,

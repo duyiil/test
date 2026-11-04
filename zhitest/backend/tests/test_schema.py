@@ -24,4 +24,5 @@ def test_phase1_tables_registered() -> None:
         "notifications",
         "defect_candidates",
         "schedules",
+        "schedule_events",
     }

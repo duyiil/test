@@ -10,11 +10,12 @@ import {
   SettingOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
-import { Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Select, Space, Switch, theme } from "antd";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Avatar, Badge, Breadcrumb, Button, Dropdown, Layout, List, Menu, Select, Space, Switch, theme } from "antd";
 import { useEffect, useMemo } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { listProjects } from "../api/resources";
+import { listNotifications, listProjects, markNotificationRead } from "../api/resources";
+import { formatTime } from "../utils/format";
 import { useUiStore } from "../stores/ui";
 import { useCurrentUser } from "./current-user";
 
@@ -27,6 +28,8 @@ const MENU = [
   { key: "/suites", icon: <FolderOpenOutlined />, label: "测试用例集" },
   { key: "/runs", icon: <PlayCircleOutlined />, label: "执行任务" },
   { key: "/reports", icon: <FileSearchOutlined />, label: "测试报告" },
+  { key: "/defects", icon: <FileSearchOutlined />, label: "候选缺陷" },
+  { key: "/schedules", icon: <PlayCircleOutlined />, label: "定时执行" },
   { key: "/settings", icon: <SettingOutlined />, label: "系统配置" },
 ];
 
@@ -39,12 +42,16 @@ function selectedKey(pathname: string): string {
 function crumb(pathname: string): string[] {
   if (pathname === "/") return ["工作台"];
   if (pathname.startsWith("/projects/new")) return ["项目与资产", "新建项目"];
+  if (pathname.endsWith("/manage")) return ["项目与资产", "项目设置"];
   if (pathname.startsWith("/projects/")) return ["项目与资产", "项目详情"];
   if (pathname.startsWith("/projects")) return ["项目与资产"];
   if (pathname.startsWith("/reviews")) return ["测试用例审核"];
   if (pathname.startsWith("/suites")) return ["测试用例集"];
   if (pathname.startsWith("/runs")) return ["执行任务"];
   if (pathname.startsWith("/reports")) return ["测试报告"];
+  if (pathname.startsWith("/defects")) return ["候选缺陷"];
+  if (pathname.startsWith("/schedules")) return ["定时执行"];
+  if (pathname.startsWith("/notifications")) return ["通知"];
   if (pathname.startsWith("/settings")) return ["系统配置"];
   if (pathname.startsWith("/account")) return ["个人设置"];
   return ["智测"];
@@ -53,6 +60,7 @@ function crumb(pathname: string): string[] {
 export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { token } = theme.useToken();
   const user = useCurrentUser();
   const themeMode = useUiStore((state) => state.theme);
@@ -62,6 +70,11 @@ export function AdminLayout() {
   const projects = useQuery({
     queryKey: ["projects", "switcher"],
     queryFn: async () => (await listProjects({ page: 1, pageSize: 100 })).data,
+  });
+  const notifications = useQuery({
+    queryKey: ["notifications"],
+    queryFn: async () => (await listNotifications()).data,
+    refetchInterval: 20000,
   });
 
   useEffect(() => {
@@ -124,17 +137,39 @@ export function AdminLayout() {
               onChange={(checked) => setTheme(checked ? "dark" : "light")}
             />
             <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: "empty",
-                    disabled: true,
-                    label: "通知中心尚未实现（Sprint5 / US-011）",
-                  },
-                ],
-              }}
+              dropdownRender={() => (
+                <div style={{ width: 320, background: token.colorBgElevated, borderRadius: 8, boxShadow: token.boxShadowSecondary, padding: 8 }}>
+                  {(notifications.data?.items ?? []).length === 0 ? (
+                    <div style={{ padding: 12 }}>还没有通知</div>
+                  ) : (
+                    <List
+                      size="small"
+                      dataSource={(notifications.data?.items ?? []).slice(0, 5)}
+                      renderItem={(item) => (
+                        <List.Item
+                          style={{ cursor: "pointer" }}
+                          onClick={async () => {
+                            if (!item.readAt) {
+                              await markNotificationRead(item.id);
+                              await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                            }
+                            navigate("/notifications");
+                          }}
+                        >
+                          <List.Item.Meta title={item.readAt ? item.title : `未读 · ${item.title}`} description={`${item.body} · ${formatTime(item.createdAt)}`} />
+                        </List.Item>
+                      )}
+                    />
+                  )}
+                  <Button type="link" onClick={() => navigate("/notifications")}>
+                    查看全部
+                  </Button>
+                </div>
+              )}
             >
-              <Button aria-label="通知" icon={<BellOutlined />} />
+              <Badge count={notifications.data?.unreadCount ?? 0} size="small">
+                <Button aria-label="通知" icon={<BellOutlined />} />
+              </Badge>
             </Dropdown>
             <Dropdown
               menu={{

@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, List, Space, Typography } from "antd";
+import { Alert, Button, Checkbox, Input, List, Modal, Space, Typography } from "antd";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { errorText } from "../api/client";
-import { createDependencyDemo, listSuites, runSuite } from "../api/resources";
+import { createDependencyDemo, createSuite, listCases, listSuites, runSuite } from "../api/resources";
 import { useUiStore } from "../stores/ui";
 
 export function SuitePage() {
@@ -11,10 +11,30 @@ export function SuitePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [regression, setRegression] = useState(true);
+  const [caseIds, setCaseIds] = useState<string[]>([]);
   const query = useQuery({
     queryKey: ["suites", projectId],
     queryFn: async () => (await listSuites(projectId ?? "")).data.items,
     enabled: Boolean(projectId),
+  });
+  const cases = useQuery({
+    queryKey: ["cases", projectId, "confirmed"],
+    queryFn: async () => (await listCases(projectId ?? "", "confirmed")).data.items,
+    enabled: Boolean(projectId) && open,
+  });
+  const create = useMutation({
+    mutationFn: () => createSuite(projectId ?? "", { name: name.trim(), caseIds, isRegression: regression }),
+    onSuccess: async () => {
+      setOpen(false);
+      setName("");
+      setCaseIds([]);
+      setMessage(null);
+      await queryClient.invalidateQueries({ queryKey: ["suites", projectId] });
+    },
+    onError: (error: unknown) => setMessage(errorText(error)),
   });
   const demo = useMutation({
     mutationFn: () => createDependencyDemo(projectId ?? ""),
@@ -39,9 +59,14 @@ export function SuitePage() {
         <Typography.Title level={3} style={{ margin: 0 }}>
           测试用例集
         </Typography.Title>
-        <Button onClick={() => demo.mutate()} loading={demo.isPending}>
-          添加依赖链示例
-        </Button>
+        <Space>
+          <Button type="primary" onClick={() => setOpen(true)}>
+            新建用例集
+          </Button>
+          <Button onClick={() => demo.mutate()} loading={demo.isPending}>
+            添加依赖链示例
+          </Button>
+        </Space>
       </Space>
       <Alert type="info" showIcon message="依赖链示例会创建“创建商品并提取编号”和“用提取的编号查询商品”。执行时第二步使用第一步提取的 productId。" />
       {message ? <Alert type="error" showIcon message={message} /> : null}
@@ -61,6 +86,27 @@ export function SuitePage() {
           </List.Item>
         )}
       />
+      <Modal
+        title="新建用例集"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={() => create.mutate()}
+        okButtonProps={{ disabled: !name.trim() || caseIds.length === 0 }}
+        confirmLoading={create.isPending}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Input placeholder="名称" value={name} onChange={(event) => setName(event.target.value)} />
+          <Checkbox checked={regression} onChange={(event) => setRegression(event.target.checked)}>
+            回归集
+          </Checkbox>
+          {(cases.data ?? []).length === 0 ? <Typography.Text type="secondary">还没有已确认用例。</Typography.Text> : null}
+          <Checkbox.Group
+            value={caseIds}
+            onChange={(values) => setCaseIds(values.map(String))}
+            options={(cases.data ?? []).map((item) => ({ value: item.caseId, label: `${item.method} ${item.name}` }))}
+          />
+        </Space>
+      </Modal>
     </div>
   );
 }
