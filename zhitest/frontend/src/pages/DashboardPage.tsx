@@ -1,11 +1,11 @@
 import { PlusOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Card, Col, Empty, List, Row, Space, Statistic, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Col, Empty, List, Row, Space, Statistic, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 import { errorText } from "../api/client";
 import { dashboardSummary } from "../api/resources";
 import { PassRateChart } from "../components/PassRateChart";
-import { actionLabel, formatTime } from "../utils/format";
+import { RUN_LABEL, actionLabel, formatTime } from "../utils/format";
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -38,12 +38,8 @@ export function DashboardPage() {
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/projects/new")}>
             快速创建项目
           </Button>
-          <Tooltip title="用例生成属于后续 Sprint，本阶段未实现">
-            <Button disabled>快速生成测试</Button>
-          </Tooltip>
-          <Tooltip title="报告属于后续 Sprint，本阶段未实现">
-            <Button disabled>快速查看报告</Button>
-          </Tooltip>
+          <Button onClick={() => navigate("/projects")}>快速生成测试</Button>
+          <Button onClick={() => navigate("/reports")}>快速查看报告</Button>
         </Space>
       </Space>
       <Row gutter={[16, 16]}>
@@ -74,13 +70,29 @@ export function DashboardPage() {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={14}>
           <Card title="执行通过率">
-            <PassRateChart points={[]} />
+            <PassRateChart
+              points={data.executionDataAvailable && data.passRate !== null ? [{ label: "最近任务", rate: data.passRate }] : []}
+            />
             <Typography.Text type="secondary">{data.passRateText}</Typography.Text>
           </Card>
         </Col>
         <Col xs={24} lg={10}>
           <Card title="最近执行任务">
-            {data.recentTasks.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行任务" /> : null}
+            {data.recentTasks.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行任务" />
+            ) : (
+              <List
+                dataSource={data.recentTasks}
+                renderItem={(task) => (
+                  <List.Item>
+                    <List.Item.Meta
+                      title={`${task.projectName} · ${RUN_LABEL[task.status] ?? task.status}`}
+                      description={`${task.passRateText} · ${formatTime(task.createdAt)}`}
+                    />
+                  </List.Item>
+                )}
+              />
+            )}
           </Card>
         </Col>
       </Row>

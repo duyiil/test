@@ -40,6 +40,23 @@ services:
       - "8080:80"
     depends_on:
       - api
+  worker:
+    build:
+      context: ../zhitest/backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://zhitest:zhitest@postgres:5432/zhitest
+      ZHITEST_ENV: development
+      ZHITEST_AUTO_BOOTSTRAP: "false"
+      ZHITEST_LOG_LEVEL: INFO
+    entrypoint: ["python", "-m", "app.worker"]
+    depends_on:
+      - api
+  sut:
+    build:
+      context: ..
+      dockerfile: demo/sut/Dockerfile
+    ports:
+      - "9000:9000"
 
 volumes:
   zhitest-pg:

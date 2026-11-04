@@ -30,6 +30,6 @@ def health(db: Session = Depends(get_db)) -> object:
             "status": "ok",
             "database": "ok",
             "service": "zhitest-api",
-            "phase": "phase1",
+            "phase": "phase2",
         }
     )

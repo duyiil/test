@@ -3,6 +3,31 @@
 from app.models.audit import AuditLog
 from app.models.project import Project
 from app.models.session import UserSession
+from app.models.testing import (
+    ApiEndpoint,
+    DataReport,
+    GenerationTarget,
+    GenerationTask,
+    ReviewEvent,
+    RunResult,
+    TestCase,
+    TestCaseVersion,
+    TestRun,
+)
 from app.models.user import User
 
-__all__ = ["AuditLog", "Project", "User", "UserSession"]
+__all__ = [
+    "ApiEndpoint",
+    "AuditLog",
+    "DataReport",
+    "GenerationTarget",
+    "GenerationTask",
+    "Project",
+    "ReviewEvent",
+    "RunResult",
+    "TestCase",
+    "TestCaseVersion",
+    "TestRun",
+    "User",
+    "UserSession",
+]
