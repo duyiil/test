@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Card, Descriptions, Space, Statistic, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Input, Space, Statistic, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { errorText } from "../api/client";
-import { createGeneration, getGeneration, getProject, listEndpoints, loadDemoContract } from "../api/resources";
+import { checkTarget, confirmOpenApi, createGeneration, getGeneration, getProject, listEndpoints, loadDemoContract, previewOpenApi } from "../api/resources";
 import { useUiStore } from "../stores/ui";
 import { RUN_LABEL, formatTime } from "../utils/format";
 
@@ -14,6 +14,8 @@ export function ProjectDetailPage() {
   const queryClient = useQueryClient();
   const [taskId, setTaskId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [openApiText, setOpenApiText] = useState("");
+  const [previewText, setPreviewText] = useState("");
   const query = useQuery({
     queryKey: ["project", projectId],
     queryFn: async () => (await getProject(projectId)).data,
@@ -96,7 +98,66 @@ export function ProjectDetailPage() {
           生成测试草稿
         </Button>
         <Button onClick={() => navigate("/reviews")}>去审核</Button>
+        <Button onClick={() => navigate("/suites")}>用例集</Button>
+        <Button
+          onClick={async () => {
+            try {
+              const result = await checkTarget(projectId);
+              setActionError(null);
+              setPreviewText(`目标 ${result.data.baseUrl} 通过检查`);
+            } catch (error) {
+              setActionError(errorText(error));
+            }
+          }}
+        >
+          检查执行目标
+        </Button>
       </Space>
+      <Card title="OpenAPI 3.x">
+        <Input.TextArea rows={6} value={openApiText} onChange={(event) => setOpenApiText(event.target.value)} placeholder="粘贴 JSON 或 YAML" />
+        <Space style={{ marginTop: 12 }}>
+          <Button
+            onClick={async () => {
+              try {
+                const result = await previewOpenApi(projectId, openApiText);
+                setActionError(null);
+                setPreviewText(result.data.endpoints.map((item) => `${item.method} ${item.path}`).join("\n") || "没有接口");
+              } catch (error) {
+                setActionError(errorText(error));
+              }
+            }}
+          >
+            预览
+          </Button>
+          <Button
+            type="primary"
+            onClick={async () => {
+              try {
+                const result = await confirmOpenApi(projectId, openApiText);
+                setActionError(null);
+                setPreviewText(`已保存 ${result.data.saved} 个接口`);
+                await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+              } catch (error) {
+                setActionError(errorText(error));
+              }
+            }}
+          >
+            确认导入
+          </Button>
+          <input
+            aria-label="上传 OpenAPI 文件"
+            type="file"
+            accept=".json,.yaml,.yml"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              setOpenApiText(await file.text());
+            }}
+          />
+        </Space>
+        {previewText ? <pre className="json-preview">{previewText}</pre> : null}
+      </Card>
       {generation.data ? (
         <Alert
           type={generation.data.status === "failed" ? "error" : "info"}

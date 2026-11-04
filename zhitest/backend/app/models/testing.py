@@ -21,6 +21,7 @@ class ApiEndpoint(Base):
     path: Mapped[str] = mapped_column(String(300), nullable=False)
     summary: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     contract: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -78,6 +79,8 @@ class TestCaseVersion(Base):
     body: Mapped[Any] = mapped_column(JSON, nullable=True)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     assertions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    extract: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    dependencies: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     origin: Mapped[str] = mapped_column(String(32), nullable=False, default="mock")
@@ -113,6 +116,11 @@ class TestRun(Base):
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     abort_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    suite_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fencing_token: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -13,7 +13,7 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.logging import setup_logging
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import AuthGateMiddleware, RequestContextMiddleware
 from app.core.request_context import request_id_from
 from app.core.responses import UTF8JSONResponse, error_body
 from app.modules.bootstrap import bootstrap_admin
@@ -96,6 +96,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Request-Id"],
     )
+    app.add_middleware(AuthGateMiddleware)
     app.add_middleware(RequestContextMiddleware)
     register_exception_handlers(app)
     app.include_router(api_router, prefix="/api/v1")

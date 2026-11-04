@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import utcnow
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.security import dummy_verify, hash_token, new_session_token, verify_password
@@ -57,7 +58,7 @@ def login(db: Session, settings: Settings, username: str, password: str, ip: str
         UserSession(
             user_id=user.id,
             token_hash=hash_token(raw),
-            expires_at=now + timedelta(seconds=settings.session_ttl_seconds),
+            expires_at=utcnow() + timedelta(seconds=settings.session_ttl_seconds),
             ip=ip,
             created_at=now,
         )
@@ -91,4 +92,4 @@ def logout(db: Session, raw_token: str, user: User, ip: str | None) -> None:
 
 
 def touch_session(session: UserSession, settings: Settings) -> None:
-    session.expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds)
+    session.expires_at = utcnow() + timedelta(seconds=settings.session_ttl_seconds)

@@ -182,7 +182,14 @@ def start_run(
     settings: Settings = Depends(get_settings),
     user: User = Depends(get_current_user),
 ) -> dict[str, object]:
-    run = create_run(db, user, project_id, confirm_writes=body.confirm_writes, ip=client_ip(request, settings))
+    run = create_run(
+        db,
+        user,
+        project_id,
+        confirm_writes=body.confirm_writes,
+        ip=client_ip(request, settings),
+        idempotency_key=request.headers.get("idempotency-key"),
+    )
     return success(run_payload(db, run), "执行任务已入队")
 
 

@@ -104,7 +104,11 @@ def list_endpoints(db: Session, user: User, project_id: uuid.UUID) -> list[ApiEn
 
 def create_generation_task(db: Session, user: User, project_id: uuid.UUID, ip: str | None) -> GenerationTask:
     project = get_owned_project(db, user, project_id)
-    endpoints = list(db.scalars(select(ApiEndpoint).where(ApiEndpoint.project_id == project.id)).all())
+    endpoints = list(
+        db.scalars(
+            select(ApiEndpoint).where(ApiEndpoint.project_id == project.id, ApiEndpoint.disabled.is_(False))
+        ).all()
+    )
     if not endpoints:
         raise AppError(422, "VALIDATION_ERROR", "项目还没有接口契约，无法生成用例")
     task = GenerationTask(
@@ -366,6 +370,8 @@ def edit_version(
         body=current.body,
         timeout_seconds=current.timeout_seconds,
         assertions=current.assertions if assertions is None else assertions,
+        extract=list(current.extract or []),
+        dependencies=list(current.dependencies or []),
         review_status=next_status,
         enabled=True,
         origin=current.origin,
@@ -405,15 +411,48 @@ def executable_versions(db: Session, project_id: uuid.UUID) -> list[TestCaseVers
     return chosen
 
 
-def create_run(db: Session, user: User, project_id: uuid.UUID, *, confirm_writes: bool, ip: str | None) -> TestRun:
-    project = get_owned_project(db, user, project_id)
-    assert_base_url_allowed(project.base_url)
+def create_run(
+    db: Session,
+    user: User,
+    project_id: uuid.UUID,
+    *,
+    confirm_writes: bool,
+    ip: str | None,
+    versions: list[TestCaseVersion] | None = None,
+    suite_id: uuid.UUID | None = None,
+    idempotency_key: str | None = None,
+) -> TestRun:
+    from app.modules.platform.service import prepare_run
+
+    return prepare_run(
+        db,
+        user,
+        project_id,
+        confirm_writes=confirm_writes,
+        ip=ip,
+        versions=versions,
+        suite_id=suite_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+def _create_run_body(
+    db: Session,
+    user: User,
+    project: Project,
+    versions: list[TestCaseVersion],
+    *,
+    confirm_writes: bool,
+    ip: str | None,
+    suite_id: uuid.UUID | None,
+    base_url: str,
+) -> TestRun:
+    assert_base_url_allowed(base_url)
     active = db.scalar(
         select(TestRun).where(TestRun.project_id == project.id, TestRun.status.in_(ACTIVE_RUN)).limit(1)
     )
     if active is not None:
         raise AppError(409, "RUN_IN_PROGRESS", "该项目已有未结束的执行任务")
-    versions = executable_versions(db, project.id)
     if not versions:
         raise AppError(422, "VALIDATION_ERROR", "没有已确认且带断言的用例可执行")
     writes = [item for item in versions if item.method in WRITE_METHODS]
@@ -428,19 +467,24 @@ def create_run(db: Session, user: User, project_id: uuid.UUID, *, confirm_writes
                 ]
             },
         )
+    from app.execution.variables import order_versions
+
+    ordered = order_versions(versions)
     snapshot = {
-        "baseUrl": project.base_url,
+        "baseUrl": base_url,
         "envLabel": project.env_label,
-        "caseVersionIds": [str(item.id) for item in versions],
-        "specVersions": sorted({item.spec_version for item in versions}),
+        "caseVersionIds": [str(item.id) for item in ordered],
+        "specVersions": sorted({item.spec_version for item in ordered}),
         "provider": "mock",
+        "suiteId": str(suite_id) if suite_id else None,
     }
     run = TestRun(
         project_id=project.id,
         status="queued",
         snapshot=snapshot,
-        total_count=len(versions),
+        total_count=len(ordered),
         confirm_writes=confirm_writes,
+        suite_id=suite_id,
         created_by=user.id,
         created_at=datetime.now(timezone.utc),
     )
@@ -452,16 +496,16 @@ def create_run(db: Session, user: User, project_id: uuid.UUID, *, confirm_writes
         actor_id=user.id,
         resource_type="test_run",
         resource_id=str(run.id),
-        detail={"total": len(versions), "writes": len(writes)},
+        detail={"total": len(ordered), "writes": len(writes)},
         ip=ip,
     )
     return run
 
 
 def assert_base_url_allowed(base_url: str) -> None:
-    host = (urlsplit(base_url).hostname or "").lower()
-    if host not in {"127.0.0.1", "localhost", "::1"}:
-        raise AppError(403, "FORBIDDEN", "Phase 2 只允许把测试发到本机演示地址")
+    from app.execution.ssrf import assert_target_allowed
+
+    assert_target_allowed(base_url)
 
 
 def list_runs(db: Session, user: User, project_id: uuid.UUID) -> list[TestRun]:
@@ -601,15 +645,37 @@ def _write_report(db: Session, run: TestRun) -> DataReport:
             for item in results
         ],
     }
+    ai_status = "unavailable"
+    ai_message = AI_MESSAGE
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if settings.llm_api_key:
+        try:
+            from app.modules.ai.llm_provider import LLMGenerationProvider
+
+            ai_message = LLMGenerationProvider(
+                base_url=settings.llm_base_url,
+                model=settings.llm_model,
+                api_key=settings.llm_api_key,
+            ).triage(payload)
+            ai_status = "succeeded"
+        except Exception:
+            ai_status = "failed"
+            ai_message = "研判失败，数据报告仍可查看"
     report = DataReport(
         run_id=run.id,
         payload=payload,
-        ai_status="unavailable",
-        ai_message=AI_MESSAGE,
+        ai_status=ai_status,
+        ai_message=ai_message,
         created_at=datetime.now(timezone.utc),
     )
     db.add(report)
     db.flush()
+    from app.modules.platform.service import notify, record_defect_candidates
+
+    notify(db, run.created_by, "执行完成", f"任务 {run.status}，断言通过率 {text}")
+    record_defect_candidates(db, run)
     return report
 
 
@@ -627,7 +693,10 @@ def validate_generated_case(case: dict[str, Any], contract: dict[str, Any]) -> N
 
 
 def process_generation_task(db: Session, task_id: uuid.UUID, provider: MockGenerationProvider | None = None) -> None:
-    provider = provider or MockGenerationProvider()
+    if provider is None:
+        from app.modules.ai.llm_provider import provider_from_settings
+
+        provider = provider_from_settings()
     task = db.get(GenerationTask, task_id)
     if task is None:
         return
@@ -753,8 +822,16 @@ def claim_run(db: Session, worker_id: str) -> uuid.UUID | None:
     )
     if run is None:
         return None
+    from datetime import timedelta
+
+    from app.core.clock import utcnow
+
+    now = utcnow()
     run.status = "running"
     run.worker_id = worker_id
-    run.started_at = datetime.now(timezone.utc)
+    run.started_at = run.started_at or now
+    run.heartbeat_at = now
+    run.lease_expires_at = now + timedelta(seconds=60)
+    run.fencing_token = int(run.fencing_token or 0) + 1
     db.commit()
     return run.id
