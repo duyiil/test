@@ -12,6 +12,7 @@ export interface Project {
   description: string;
   baseUrl: string;
   envLabel: string;
+  status: string;
   endpointCount: number;
   caseCount: number;
   lastRun: {
