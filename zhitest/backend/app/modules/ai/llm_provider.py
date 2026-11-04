@@ -29,11 +29,16 @@ GENERATE_SYSTEM = (
     "只根据给定契约生成，契约没有声明的状态码不要写进断言。"
 )
 
+TRIAGE_CHAR_LIMIT = 12000
+TRIAGE_MAX_TOKENS = 2048
+_TRUNCATION_MARK = "（已截断）"
+
 TRIAGE_SYSTEM = (
     "你是测试结果研判助手。请用中文给出分组根因分析和修复建议。"
     "只根据失败明细里的用例名、方法、路径、期望值、实际值和响应片段下结论。"
     "相同原因合并成一组，并给出可核对的建议。"
-    "不要只用通过数、失败数和通过率复述结果。"
+    "每组先写原因再写建议，每组不超过四句，写完一组再写下组，不要把句子写到一半。"
+    "不要只用通过数、失败数和通过率复述结果，也不要粘贴完整响应。"
     "证据不足时写待核对，不要把未验证的问题说成已确认漏洞。"
 )
 
@@ -113,10 +118,11 @@ class LLMGenerationProvider:
                 ensure_ascii=False,
             ),
             json_mode=False,
+            max_tokens=TRIAGE_MAX_TOKENS,
         )
-        return content.strip()[:2000]
+        return bound_model_text(content)
 
-    def _chat(self, system: str, user: str, *, json_mode: bool) -> str:
+    def _chat(self, system: str, user: str, *, json_mode: bool, max_tokens: int | None = None) -> str:
         url = self.base_url + "/chat/completions"
         payload: dict[str, Any] = {
             "model": self.model,
@@ -128,6 +134,8 @@ class LLMGenerationProvider:
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         logger.info("llm request model=%s url_host=%s", self.model, _host(self.base_url))
         try:
             with httpx.Client(timeout=30, transport=self._transport) as client:
@@ -252,6 +260,32 @@ def apply_triage(
         reason = redact_secrets(f"{type(exc).__name__}: {exc}", secret=api_key)
         logger.warning("llm triage failed: %s", reason)
         return "failed", f"研判失败，数据报告仍可查看。原因：{reason}"[:2000]
+
+
+def bound_model_text(text: str, limit: int = TRIAGE_CHAR_LIMIT) -> str:
+    """超长时停在句号或换行处，并标明已截断。"""
+
+    cleaned = text.strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    budget = limit - len(_TRUNCATION_MARK)
+    if budget < 1:
+        return _TRUNCATION_MARK[:limit]
+    window = cleaned[:budget]
+    cut = _last_boundary(window)
+    if cut <= 0:
+        cut = budget
+    return window[:cut].rstrip() + _TRUNCATION_MARK
+
+
+def _last_boundary(text: str) -> int:
+    best = -1
+    for index, char in enumerate(text):
+        if char in "。！？；\n":
+            best = index + 1
+        elif char in ".!?;" and (index + 1 == len(text) or text[index + 1].isspace()):
+            best = index + 1
+    return best
 
 
 def redact_secrets(text: str, *, secret: str | None = None) -> str:

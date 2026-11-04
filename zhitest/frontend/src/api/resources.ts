@@ -189,7 +189,11 @@ export function listReports(projectId: string) {
 }
 
 export function previewOpenApi(projectId: string, document: string) {
-  return unwrap<{ endpoints: { method: string; path: string; summary: string }[]; errors: { loc: string; msg: string }[] }>(
+  return unwrap<{
+    endpoints: { method: string; path: string; summary: string }[];
+    errors: { loc: string; msg: string }[];
+    warnings?: { loc: string; msg: string }[];
+  }>(
     http.post(`/projects/${projectId}/openapi/preview`, { document }),
   );
 }

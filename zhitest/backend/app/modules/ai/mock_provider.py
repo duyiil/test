@@ -255,7 +255,14 @@ def _sample_path(contract: dict[str, Any], *, missing: bool) -> dict[str, Any]:
         if not isinstance(item, dict):
             continue
         name = str(item["name"])
-        values[name] = "missing-item" if missing else item.get("example") or "sample"
+        if missing:
+            values[name] = "missing-item"
+        elif item.get("example") is not None:
+            values[name] = item["example"]
+        else:
+            from app.modules.ai.openapi_parser import typed_example
+
+            values[name] = typed_example(str(item.get("type") or "string"))
     return values
 
 

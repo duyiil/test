@@ -68,6 +68,79 @@ def test_openapi_preview_and_confirm_generates_drafts(client: TestClient, db_ses
     assert bad.status_code == 422
 
 
+def test_openapi_path_param_without_example_uses_schema_type() -> None:
+    from app.modules.ai.openapi_parser import parse_openapi_document
+
+    parsed = parse_openapi_document(
+        """
+openapi: 3.0.3
+info:
+  title: t
+  version: "1"
+paths:
+  /api/products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: 查询
+      responses:
+        "200":
+          description: ok
+  /api/items/{sku}:
+    get:
+      parameters:
+        - name: sku
+          in: path
+          required: true
+          schema:
+            type: string
+            example: SKU-1
+      responses:
+        "200":
+          description: ok
+  /api/orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        schema:
+          type: string
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 42
+      responses:
+        "200":
+          description: ok
+"""
+    )
+    by_path = {item["path"]: item for item in parsed["endpoints"]}
+    product = by_path["/api/products/{id}"]["pathParams"][0]
+    assert product["type"] == "integer"
+    assert product["example"] == 1
+    assert product["exampleGenerated"] is True
+    sku = by_path["/api/items/{sku}"]["pathParams"][0]
+    assert sku["example"] == "SKU-1"
+    assert "exampleGenerated" not in sku
+    order = by_path["/api/orders/{id}"]["pathParams"][0]
+    assert order["example"] == 42
+    assert "exampleGenerated" not in order
+    assert parsed["warnings"] == [
+        {
+            "loc": "GET /api/products/{id} path.id",
+            "msg": "路径参数 id 没有 example，已按类型 integer 使用默认值 1",
+        }
+    ]
+    assert "sample" not in parsed["warnings"][0]["msg"]
+
+
 def test_ssrf_blocks_metadata_and_private_dns(monkeypatch) -> None:
     with pytest_raises():
         assert_target_allowed("http://169.254.169.254/latest/meta-data")

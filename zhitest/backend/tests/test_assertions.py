@@ -43,6 +43,29 @@ def test_integer_and_number_are_distinct() -> None:
     assert result[0]["actual"] == "number"
 
 
+def test_number_accepts_integer() -> None:
+    integer = evaluate_assertions(
+        [{"type": "jsonType", "path": "price", "expected": "number"}],
+        status_code=200,
+        body_text='{"price": 100000}',
+    )
+    assert integer[0]["passed"] is True
+    assert integer[0]["actual"] == "integer"
+    decimal = evaluate_assertions(
+        [{"type": "jsonType", "path": "price", "expected": "number"}],
+        status_code=200,
+        body_text='{"price": 12.5}',
+    )
+    assert decimal[0]["passed"] is True
+    text = evaluate_assertions(
+        [{"type": "jsonType", "path": "price", "expected": "number"}],
+        status_code=200,
+        body_text='{"price": "100000"}',
+    )
+    assert text[0]["passed"] is False
+    assert text[0]["actual"] == "string"
+
+
 def test_range_rejects_numeric_string() -> None:
     result = evaluate_assertions(
         [{"type": "range", "path": "price", "minimum": 0, "maximum": 10}],
