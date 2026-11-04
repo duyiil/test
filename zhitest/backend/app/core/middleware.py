@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -20,6 +21,40 @@ def _cookie(name: str, value: str, max_age: int, secure: bool) -> bytes:
     if secure:
         parts.append("Secure")
     return "; ".join(parts).encode("ascii")
+
+
+class AuthGateMiddleware:
+    """未登录访问受保护接口时直接 401，避免畸形 JSON 先返回 422。"""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
+        public = path in {"/api/v1/health", "/api/v1/auth/login"} or not path.startswith("/api/")
+        if method == "OPTIONS" or public:
+            await self.app(scope, receive, send)
+            return
+        settings = get_settings()
+        headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in scope.get("headers", [])}
+        if f"{settings.session_cookie_name}=" not in headers.get("cookie", ""):
+            from app.core.responses import error_body
+
+            payload = json.dumps(error_body("UNAUTHORIZED", "未登录或登录已失效"), ensure_ascii=False).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"application/json; charset=utf-8")],
+                }
+            )
+            await send({"type": "http.response.body", "body": payload})
+            return
+        await self.app(scope, receive, send)
 
 
 class RequestContextMiddleware:

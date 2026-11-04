@@ -15,6 +15,8 @@ os.environ["ZHITEST_COOKIE_SECURE"] = "false"
 os.environ["ZHITEST_TRUST_PROXY"] = "false"
 os.environ["ZHITEST_SESSION_TTL_SECONDS"] = "7200"
 os.environ["ZHITEST_LOG_LEVEL"] = "WARNING"
+os.environ["ZHITEST_LLM_API_KEY"] = ""
+os.environ["ZHITEST_TARGET_ALLOWLIST"] = "127.0.0.1,localhost,::1"
 
 import pytest
 from alembic import command
@@ -52,9 +54,11 @@ def _truncate() -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE TABLE data_reports, run_results, test_runs, review_events, "
-                "test_case_versions, generation_targets, test_cases, generation_tasks, "
-                "api_endpoints, audit_logs, projects, user_sessions, users RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE schedules, defect_candidates, notifications, idempotency_records, "
+                "suite_items, suites, project_members, project_environments, data_reports, run_results, "
+                "test_runs, review_events, test_case_versions, generation_targets, test_cases, "
+                "generation_tasks, api_endpoints, audit_logs, projects, user_sessions, users "
+                "RESTART IDENTITY CASCADE"
             )
         )
 

@@ -16,4 +16,12 @@ def test_phase1_tables_registered() -> None:
         "test_runs",
         "run_results",
         "data_reports",
+        "project_environments",
+        "project_members",
+        "suites",
+        "suite_items",
+        "idempotency_records",
+        "notifications",
+        "defect_candidates",
+        "schedules",
     }

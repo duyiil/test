@@ -45,6 +45,7 @@ export interface GenerationTask {
   id: string;
   status: string;
   provider: string;
+  model?: string | null;
   targetCount: number;
   succeededCount: number;
   failedCount: number;
@@ -185,4 +186,36 @@ export function getReport(runId: string) {
 
 export function listReports(projectId: string) {
   return unwrap<{ items: ReportItem[] }>(http.get(`/projects/${projectId}/reports`));
+}
+
+export function previewOpenApi(projectId: string, document: string) {
+  return unwrap<{
+    endpoints: { method: string; path: string; summary: string }[];
+    errors: { loc: string; msg: string }[];
+    warnings?: { loc: string; msg: string }[];
+  }>(
+    http.post(`/projects/${projectId}/openapi/preview`, { document }),
+  );
+}
+
+export function confirmOpenApi(projectId: string, document: string) {
+  return unwrap<{ saved: number; disabled: number }>(http.post(`/projects/${projectId}/openapi/confirm`, { document }));
+}
+
+export function checkTarget(projectId: string) {
+  return unwrap<{ baseUrl: string; allowed: boolean }>(http.post(`/projects/${projectId}/target-check`));
+}
+
+export function createDependencyDemo(projectId: string) {
+  return unwrap<{ suiteId: string }>(http.post(`/projects/${projectId}/dependency-demo`));
+}
+
+export function listSuites(projectId: string) {
+  return unwrap<{ items: { id: string; name: string; isRegression: boolean; caseIds: string[] }[] }>(
+    http.get(`/projects/${projectId}/suites`),
+  );
+}
+
+export function runSuite(suiteId: string, confirmWrites: boolean) {
+  return unwrap<RunItem>(http.post(`/suites/${suiteId}/runs`, { confirmWrites }));
 }
