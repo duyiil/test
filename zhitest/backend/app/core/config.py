@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     )
     llm_model: str = Field(default="deepseek-chat", validation_alias=AliasChoices("ZHITEST_LLM_MODEL"))
     llm_api_key: str = Field(default="", validation_alias=AliasChoices("ZHITEST_LLM_API_KEY"))
+    secret_key: str = Field(default="", validation_alias=AliasChoices("ZHITEST_SECRET_KEY"))
 
     @property
     def cors_origin_list(self) -> list[str]:
