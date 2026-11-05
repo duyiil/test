@@ -38,7 +38,7 @@ export function LoginPage() {
         <div>
           <div className="brand-mark">智</div>
           <h1>智测 ZhiTest</h1>
-          <p>基于大语言模型智能体的软件自动化测试与质量保障平台。当前交付为 Phase 1 基础工程：登录、项目隔离与真实工作台数据。</p>
+          <p>基于大语言模型智能体的软件自动化测试与质量保障平台。已交付主链路：用例生成（Mock）→ 审核 → 执行（Worker）→ 数据报告。</p>
         </div>
         <Typography.Text style={{ color: "#9fb3c8" }}>首版不开放公开注册，账号由管理员创建。</Typography.Text>
       </section>

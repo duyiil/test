@@ -158,16 +158,23 @@ def _path_example(parameter: dict[str, Any], schema: dict[str, Any]) -> tuple[An
     return typed_example(str(schema.get("type") or "string")), True
 
 
-def _schema(document: dict[str, Any], schema: Any, loc: str) -> dict[str, Any]:
+def _schema(document: dict[str, Any], schema: Any, loc: str, seen: set[str] | None = None) -> dict[str, Any]:
+    seen = set(seen) if seen else set()
     if not isinstance(schema, dict):
         raise ValueError(f"{loc} 的 schema 不是对象")
     if "$ref" in schema:
-        schema = _resolve(document, str(schema["$ref"]), loc)
+        ref = str(schema["$ref"])
+        if ref in seen:
+            raise ValueError(f"{loc} 存在循环引用: {ref}")
+        seen.add(ref)
+        schema = _resolve(document, ref, loc)
     properties = {}
     raw_properties = schema.get("properties") or {}
     if isinstance(raw_properties, dict):
         for name, value in raw_properties.items():
-            properties[name] = _schema(document, value, f"{loc}.{name}")
+            # 每个属性传入 seen 的副本：兄弟属性引用同一 schema 不是循环，
+            # 只有沿引用链回到已展开的 schema 才判定为循环引用。
+            properties[name] = _schema(document, value, f"{loc}.{name}", set(seen))
     result: dict[str, Any] = {"type": schema.get("type") or ("object" if properties else "string")}
     if properties:
         result["properties"] = properties
@@ -179,7 +186,11 @@ def _schema(document: dict[str, Any], schema: Any, loc: str) -> dict[str, Any]:
     return result
 
 
-def _resolve(document: dict[str, Any], ref: str, loc: str) -> dict[str, Any]:
+def _resolve(document: dict[str, Any], ref: str, loc: str, seen: set[str] | None = None) -> dict[str, Any]:
+    seen = set(seen) if seen else set()
+    if ref in seen:
+        raise ValueError(f"{loc} 存在循环引用: {ref}")
+    seen.add(ref)
     if not ref.startswith("#/"):
         raise ValueError(f"{loc} 使用了无法解析的引用 {ref}")
     current: Any = document
@@ -190,5 +201,5 @@ def _resolve(document: dict[str, Any], ref: str, loc: str) -> dict[str, Any]:
     if not isinstance(current, dict):
         raise ValueError(f"{loc} 引用 {ref} 不是对象")
     if "$ref" in current:
-        return _resolve(document, str(current["$ref"]), loc)
+        return _resolve(document, str(current["$ref"]), loc, seen)
     return current
