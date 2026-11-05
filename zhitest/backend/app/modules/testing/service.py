@@ -537,7 +537,13 @@ def get_run(db: Session, user: User, run_id: uuid.UUID) -> TestRun:
     return run
 
 
-def run_payload(db: Session, run: TestRun, *, project_name: str | None = None) -> dict[str, object]:
+def run_payload(
+    db: Session,
+    run: TestRun,
+    *,
+    project_name: str | None = None,
+    with_response_body: bool = True,
+) -> dict[str, object]:
     rate, text = pass_rate(run.passed_count, run.assertion_failed_count)
     results = list(db.scalars(select(RunResult).where(RunResult.run_id == run.id).order_by(RunResult.ordinal)).all())
     return {
@@ -567,7 +573,8 @@ def run_payload(db: Session, run: TestRun, *, project_name: str | None = None) -
                 "status": item.status,
                 "request": item.request,
                 "responseStatus": item.response_status,
-                "responseBody": item.response_body,
+                # 响应体最长 20000 字符；列表轮询场景不需要，按需省略以减小响应体积。
+                "responseBody": item.response_body if with_response_body else None,
                 "errorClass": item.error_class,
                 "errorMessage": item.error_message,
                 "assertionResults": item.assertion_results,
@@ -621,7 +628,17 @@ def list_reports(db: Session, user: User, project_id: uuid.UUID) -> list[dict[st
     reports = list(
         db.scalars(select(DataReport).where(DataReport.run_id.in_(runs)).order_by(DataReport.created_at.desc())).all()
     )
-    return [report_payload(item) for item in reports]
+    # 列表只返回索引所需的字段；完整明细（含响应体）由 GET /runs/{id}/report 单独获取，
+    # 避免把每份报告的全部 payload 都塞进列表响应。
+    return [
+        {
+            "id": str(item.id),
+            "runId": str(item.run_id),
+            "aiStatus": item.ai_status,
+            "createdAt": item.created_at.isoformat(),
+        }
+        for item in reports
+    ]
 
 
 def _write_report(db: Session, run: TestRun) -> DataReport:

@@ -30,8 +30,11 @@ def execute_run(db: Session, run_id: uuid.UUID, transport: Transport | None = No
     if project is None:
         _finish(db, run, "failed", "项目不存在")
         return
+    # 执行目标使用任务快照里冻结的 Base URL（激活环境的地址），
+    # 快照缺失时回退项目地址，保证报告里的 snapshot.baseUrl 与实际请求一致。
+    base_url = str(run.snapshot.get("baseUrl") or project.base_url or "")
     try:
-        assert_base_url_allowed(project.base_url)
+        assert_base_url_allowed(base_url)
     except Exception as exc:
         _finish(db, run, "aborted", str(exc))
         return
@@ -77,9 +80,10 @@ def execute_run(db: Session, run_id: uuid.UUID, transport: Transport | None = No
             failed_cases.add(str(version.case_id))
             db.commit()
             continue
-        outcome = _execute_case(project.base_url, rendered, sender)
+        outcome = _execute_case(base_url, rendered, sender)
         if outcome["error_class"] in {"connect_error", "timeout"} and version.method in READ_METHODS and outcome["attempt_count"] == 1:
-            outcome = _execute_case(project.base_url, version, sender)
+            # 重试必须用渲染后的用例对象，否则依赖链用例会把 {{var}} 模板原样发出去。
+            outcome = _execute_case(base_url, rendered, sender)
             outcome["attempt_count"] = 2
         _save_result(db, run, version, index, outcome)
         if outcome["error_class"] in {"connect_error", "timeout"}:
