@@ -150,8 +150,13 @@ export function AdminLayout() {
                           style={{ cursor: "pointer" }}
                           onClick={async () => {
                             if (!item.readAt) {
-                              await markNotificationRead(item.id);
-                              await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                              // 标记失败（如会话过期）不应阻断跳转，也不产生未处理的 Promise 异常。
+                              try {
+                                await markNotificationRead(item.id);
+                                await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                              } catch {
+                                // 忽略标记失败，用户仍可进入通知页查看。
+                              }
                             }
                             navigate("/notifications");
                           }}

@@ -51,19 +51,16 @@ export function DashboardPage() {
         <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic title="测试用例数量" value={data.caseCount} />
-            <div className="stat-note">用例表尚未建立</div>
           </Card>
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic title="待审核数量" value={data.pendingReviewCount} />
-            <div className="stat-note">审核模块尚未建立</div>
           </Card>
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic title="失败用例数量" value={data.failedCaseCount} />
-            <div className="stat-note">尚无执行记录</div>
           </Card>
         </Col>
       </Row>

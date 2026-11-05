@@ -102,7 +102,8 @@ export interface RunItem {
     errorClass: string | null;
     errorMessage: string | null;
     request: { method?: string; url?: string; body?: unknown };
-    responseBody: string | null;
+    // 列表接口不再返回响应体（体积优化），仅 GET /runs/{run_id} 明细返回。
+    responseBody?: string | null;
     assertionResults: { type: string; passed: boolean; message: string; errorClass: string | null; expected: unknown; actual: unknown }[];
   }[];
 }
@@ -185,7 +186,10 @@ export function getReport(runId: string) {
 }
 
 export function listReports(projectId: string) {
-  return unwrap<{ items: ReportItem[] }>(http.get(`/projects/${projectId}/reports`));
+  // 列表只返回索引字段，完整报告用 getReport(runId) 获取。
+  return unwrap<{ items: Pick<ReportItem, "id" | "runId" | "aiStatus" | "createdAt">[] }>(
+    http.get(`/projects/${projectId}/reports`),
+  );
 }
 
 export function previewOpenApi(projectId: string, document: string) {

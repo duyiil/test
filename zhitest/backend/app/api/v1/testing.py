@@ -203,7 +203,15 @@ def runs(
 
     project = db.get(Project, project_id)
     name = project.name if project else None
-    return success({"items": [run_payload(db, item, project_name=name) for item in list_runs(db, user, project_id)]})
+    # 列表供轮询与表格使用，不返回结果响应体（明细页用 GET /runs/{run_id} 获取完整数据）。
+    return success(
+        {
+            "items": [
+                run_payload(db, item, project_name=name, with_response_body=False)
+                for item in list_runs(db, user, project_id)
+            ]
+        }
+    )
 
 
 @router.get("/runs/{run_id}")
