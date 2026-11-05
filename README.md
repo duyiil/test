@@ -1,7 +1,7 @@
 # 基于大语言模型智能体的软件自动化测试与质量保障平台
 一次小实验
 
-智测 ZhiTest。当前进度包含 Phase 1 基础工程，以及 Phase 2 主链路：Mock 生成、审核、本机 HTTP 执行、四种断言和数据报告。OpenAPI 导入、真实模型和源码执行还没有做。说明见 `docs/phase2.md`。演示服务是这次新写的，见 `demo/sut/README.md`。
+智测 ZhiTest。阶段结果、已核对的运行和未完成项汇总见 [docs/工作汇报-王雨飞.md](docs/工作汇报-王雨飞.md)。Phase 2 主链路说明见 `docs/phase2.md`。演示服务见 `demo/sut/README.md`。源码执行没有做。
 
 ## 资料缺口
 
@@ -72,7 +72,7 @@ sudo iptables-legacy -P FORWARD ACCEPT
 - `zhitest/backend`：FastAPI、迁移、pytest
 - `zhitest/frontend`：React + TypeScript + Vite
 - `compose.yaml`：一键部署。`deploy/docker-compose.yml` 只是指向它
-- `docs`：审计、接口、数据库、运行、追踪
+- `docs`：审计、接口、数据库、运行、追踪，以及 [工作汇报](docs/工作汇报-王雨飞.md)
 - `scripts`：本地启动和验证
 
 Phase 1 接口见 `docs/api-contract-phase1.md`。不要把它当成缺失的契约 V0.1。
