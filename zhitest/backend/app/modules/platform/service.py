@@ -663,7 +663,15 @@ def dispatch_due_schedules(db: Session, user: User) -> int:
 
 def dependency_demo(db: Session, user: User, project_id: uuid.UUID) -> dict[str, str]:
     project = get_owned_project(db, user, project_id)
-    endpoint = db.scalar(select(ApiEndpoint).where(ApiEndpoint.project_id == project.id, ApiEndpoint.method == "POST"))
+    # 依赖链示例的请求内容写死为 /api/products，endpoint 必须显式匹配同一路径，
+    # 否则契约里有多个 POST 接口时会挂到错误接口上（影响 spec_version 关联）。
+    endpoint = db.scalar(
+        select(ApiEndpoint).where(
+            ApiEndpoint.project_id == project.id,
+            ApiEndpoint.method == "POST",
+            ApiEndpoint.path == "/api/products",
+        )
+    )
     detail = db.scalar(
         select(ApiEndpoint).where(ApiEndpoint.project_id == project.id, ApiEndpoint.path == "/api/products/{id}")
     )
