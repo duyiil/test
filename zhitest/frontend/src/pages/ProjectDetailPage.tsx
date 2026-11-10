@@ -3,7 +3,19 @@ import { Alert, Button, Card, Descriptions, Input, Space, Statistic, Typography 
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { errorText } from "../api/client";
-import { checkTarget, confirmOpenApi, createGeneration, getGeneration, getProject, listEndpoints, loadDemoContract, previewOpenApi } from "../api/resources";
+import {
+  checkTarget,
+  confirmOpenApi,
+  createGeneration,
+  detectGithubProject,
+  getGeneration,
+  getProject,
+  importGithubSpec,
+  listEndpoints,
+  loadDemoContract,
+  previewOpenApi,
+  type GithubDetection,
+} from "../api/resources";
 import { useUiStore } from "../stores/ui";
 import { RUN_LABEL, formatTime } from "../utils/format";
 
@@ -16,6 +28,9 @@ export function ProjectDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [openApiText, setOpenApiText] = useState("");
   const [previewText, setPreviewText] = useState("");
+  const [githubUrl, setGithubUrl] = useState("");
+  const [githubResult, setGithubResult] = useState<GithubDetection | null>(null);
+  const [githubBusy, setGithubBusy] = useState(false);
   const query = useQuery({
     queryKey: ["project", projectId],
     queryFn: async () => (await getProject(projectId)).data,
@@ -162,6 +177,101 @@ export function ProjectDetailPage() {
           />
         </Space>
         {previewText ? <pre className="json-preview">{previewText}</pre> : null}
+      </Card>
+      <Card title="GitHub 项目接入">
+        <Space wrap>
+          <Input
+            style={{ width: 380 }}
+            value={githubUrl}
+            onChange={(event) => setGithubUrl(event.target.value)}
+            placeholder="https://github.com/owner/repo"
+          />
+          <Button
+            loading={githubBusy}
+            onClick={async () => {
+              try {
+                setGithubBusy(true);
+                const result = await detectGithubProject(projectId, githubUrl);
+                setActionError(null);
+                setGithubResult(result.data);
+              } catch (error) {
+                setGithubResult(null);
+                setActionError(errorText(error));
+              } finally {
+                setGithubBusy(false);
+              }
+            }}
+          >
+            检测项目
+          </Button>
+        </Space>
+        {githubResult ? (
+          <div className="page-stack" style={{ marginTop: 12 }}>
+            <Alert
+              type="success"
+              showIcon
+              message={`${githubResult.repo.fullName}（${githubResult.repo.language || "未标注语言"}，分支 ${githubResult.ref}，约 ${githubResult.fileCount} 个文件）`}
+              description={
+                githubResult.repo.description
+                  ? `${githubResult.repo.description}；框架指纹：${githubResult.frameworks.join("、")}`
+                  : `框架指纹：${githubResult.frameworks.join("、")}`
+              }
+            />
+            {githubResult.specCandidates.length === 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="没有找到 OpenAPI/Swagger 接口定义文件。可以粘贴文档到上方 OpenAPI 区域，或检查仓库中是否包含 openapi.json / swagger.yaml 等文件。"
+              />
+            ) : (
+              githubResult.specCandidates.map((candidate) => (
+                <Card key={candidate.path} size="small" title={candidate.path}>
+                  {candidate.parseOk ? (
+                    <Space wrap>
+                      <span>
+                        解析通过，{candidate.endpointCount} 个接口（OpenAPI {candidate.openapi ?? ""}）
+                      </span>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            const result = await importGithubSpec(projectId, githubUrl, candidate.path, false);
+                            setActionError(null);
+                            setPreviewText(`已导入 ${result.data.saved} 个接口`);
+                            await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                            await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                          } catch (error) {
+                            setActionError(errorText(error));
+                          }
+                        }}
+                      >
+                        导入接口
+                      </Button>
+                      <Button
+                        type="primary"
+                        onClick={async () => {
+                          try {
+                            const result = await importGithubSpec(projectId, githubUrl, candidate.path, true);
+                            setActionError(null);
+                            setPreviewText(`已导入 ${result.data.saved} 个接口，用例生成任务已入队`);
+                            await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                            await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                            if (result.data.generationTaskId) setTaskId(result.data.generationTaskId);
+                          } catch (error) {
+                            setActionError(errorText(error));
+                          }
+                        }}
+                      >
+                        导入并生成用例
+                      </Button>
+                    </Space>
+                  ) : (
+                    <span>解析失败：{candidate.error || "未知原因"}</span>
+                  )}
+                </Card>
+              ))
+            )}
+          </div>
+        ) : null}
       </Card>
       {generation.data ? (
         <Alert
