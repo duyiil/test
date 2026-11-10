@@ -81,6 +81,9 @@ async def lifespan(_app: FastAPI):
     settings = get_settings()
     if settings.auto_bootstrap:
         bootstrap_admin(settings)
+        from app.modules.seed import seed_default_project
+
+        seed_default_project(settings)
     yield
 
 

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DATABASE_URL"),
     )
     auto_bootstrap: bool = Field(default=True, validation_alias=AliasChoices("ZHITEST_AUTO_BOOTSTRAP"))
+    seed_demo: bool = Field(default=True, validation_alias=AliasChoices("ZHITEST_SEED_DEMO"))
     admin_username: str = Field(default="admin", validation_alias=AliasChoices("ZHITEST_ADMIN_USERNAME"))
     admin_password: str = Field(default="", validation_alias=AliasChoices("ZHITEST_ADMIN_PASSWORD"))
     admin_display_name: str = Field(

@@ -43,7 +43,7 @@ npm run dev
 
 不需要演示被测服务时，去掉 `--demo`。脚本会在没有 `.env` 时从 `.env.example` 生成一份，写入随机的数据库口令、`ZHITEST_SECRET_KEY` 和管理员密码，并只在终端打印一次管理员密码。`.env` 已在 `.gitignore` 里，不要提交。DeepSeek 密钥留在 `ZHITEST_LLM_API_KEY`，空着就继续用 Mock。
 
-打开 http://127.0.0.1:8080 。用户名是 `admin`。密码是刚才打印的那一行；错过了就看 `.env` 里的 `ZHITEST_ADMIN_PASSWORD`。带 `--demo` 时，项目的 Base URL 填 `http://sut:9000`（这是容器网络里的演示服务，不是执行器自己的 127.0.0.1）。
+打开 http://127.0.0.1:8080 。用户名是 `admin`。密码是刚才打印的那一行；错过了就看 `.env` 里的 `ZHITEST_ADMIN_PASSWORD`。带 `--demo` 时，项目的 Base URL 填 `http://sut:8001`（这是容器网络里的演示服务，不是执行器自己的 127.0.0.1）。
 
 常用操作：
 
