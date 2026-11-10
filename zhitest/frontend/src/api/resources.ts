@@ -206,6 +206,33 @@ export function checkTarget(projectId: string) {
   return unwrap<{ baseUrl: string; allowed: boolean }>(http.post(`/projects/${projectId}/target-check`));
 }
 
+export interface GithubCandidate {
+  path: string;
+  parseOk: boolean;
+  endpointCount: number;
+  error: string;
+  openapi?: string;
+}
+
+export interface GithubDetection {
+  url: string;
+  repo: { fullName: string; description: string; language: string; defaultBranch: string; htmlUrl: string };
+  ref: string;
+  fileCount: number;
+  frameworks: string[];
+  specCandidates: GithubCandidate[];
+}
+
+export function detectGithubProject(projectId: string, url: string) {
+  return unwrap<GithubDetection>(http.post(`/projects/${projectId}/github/detect`, { url }));
+}
+
+export function importGithubSpec(projectId: string, url: string, specPath: string, autoGenerate: boolean) {
+  return unwrap<{ saved: number; disabled: number; generationTaskId?: string }>(
+    http.post(`/projects/${projectId}/github/import`, { url, specPath, autoGenerate }),
+  );
+}
+
 export function createDependencyDemo(projectId: string) {
   return unwrap<{ suiteId: string }>(http.post(`/projects/${projectId}/dependency-demo`));
 }

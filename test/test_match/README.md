@@ -52,6 +52,17 @@ E:/duyiil-test/zhitest/backend/.venv/Scripts/python.exe -m pytest E:/duyiil-test
 | TCM-SUT-007 | 相同 name 创建两次 | 两次都返回 201，列表出现重名 |
 | TCM-SUT-008 | 联调端口约定 | main.py 启动端口为 8001 |
 
+### 四、GitHub 项目接入（TCM-GITHUB）
+
+| 编号 | 用例 | 预期 |
+| --- | --- | --- |
+| TCM-GITHUB-001 | 普通仓库网址解析 | 解析出 owner/repo |
+| TCM-GITHUB-002 | 带分支/路径网址解析 | 解析出 ref 与 path |
+| TCM-GITHUB-003 | 非 github.com 主机/非法格式 | 一律拒绝（防 SSRF） |
+| TCM-GITHUB-004 | 常见位置 openapi/swagger 文件 | 被发现为候选 |
+| TCM-GITHUB-005 | 任意深度的 openapi 文件 | 兜底发现 |
+| TCM-GITHUB-006 | 框架指纹识别 | pom.xml→Java/Spring Boot；无指纹时通用回退 |
+
 ## 与仓库既有测试的关系
 
 - 仓库既有 62 条 pytest 在 `zhitest/backend/tests/`，本目录不修改它们。
