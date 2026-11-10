@@ -71,7 +71,11 @@ export function ReportPage() {
               下载 HTML
             </Button>
           </Space>
-          <Alert type={report.data?.aiStatus === "succeeded" ? "success" : "warning"} showIcon message={report.data?.aiMessage} />
+          <Alert
+            type={report.data?.aiStatus === "succeeded" ? "success" : report.data?.aiStatus === "mock" ? "info" : "warning"}
+            showIcon
+            message={report.data?.aiMessage}
+          />
           <Card>
             <Descriptions column={{ xs: 1, md: 3 }}>
               <Descriptions.Item label="任务状态">{RUN_LABEL[data.status] ?? data.status}</Descriptions.Item>

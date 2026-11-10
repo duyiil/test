@@ -683,6 +683,13 @@ def _write_report(db: Session, run: TestRun) -> DataReport:
             model=settings.llm_model,
             api_key=settings.llm_api_key,
         )
+    else:
+        # 柴诗雨：Mock 研判。无真实模型密钥时，按 7 类内置 bug 规则输出归因，
+        # 状态用 mock 区分于真实模型分析，结论自带来源标注。
+        from app.modules.ai.mock_triage import MockTriageProvider
+
+        ai_status = "mock"
+        ai_message = MockTriageProvider().triage(payload)
     report = DataReport(
         run_id=run.id,
         payload=payload,

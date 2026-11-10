@@ -9,7 +9,7 @@ cd demo/sut
 python3 main.py
 ```
 
-默认监听 `http://127.0.0.1:9000`。Phase 2 的执行器只允许访问本机地址。
+默认监听 `http://127.0.0.1:8001`（柴诗雨联调端口）。Phase 2 的执行器只允许访问本机地址。
 
 契约在 `zhitest/backend/app/modules/ai/demo_contract.py`，由页面上的「载入演示契约」写入项目。生成器只读这份契约，不导入本目录。
 

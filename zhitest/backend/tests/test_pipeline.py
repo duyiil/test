@@ -171,7 +171,8 @@ def test_write_confirmation_cancel_and_report(client: TestClient, db_session: Se
     assert cancelled.json()["data"]["status"] == "cancelled"
     report = client.get(f"/api/v1/runs/{run_id}/report")
     assert report.status_code == 200
-    assert report.json()["data"]["aiStatus"] == "unavailable"
+    # 柴诗雨：无真实模型密钥时，报告由内置规则研判，状态为 mock
+    assert report.json()["data"]["aiStatus"] == "mock"
     again = client.post(f"/api/v1/runs/{run_id}/cancel")
     assert again.status_code == 409
 
@@ -210,7 +211,9 @@ def test_worker_executes_against_author_sut_and_keeps_report(client: TestClient,
         assert finished.passed_count > 0
         report = db_session.scalar(select(testing_models.DataReport).where(testing_models.DataReport.run_id == run_id))
         assert report is not None
-        assert report.ai_status == "unavailable"
+        # 柴诗雨：无真实模型密钥时，报告由内置规则研判，状态为 mock
+        assert report.ai_status == "mock"
+        assert "规则研判" in report.ai_message
         body = client.get(f"/api/v1/runs/{run_id}/report")
         assert body.status_code == 200
         assert body.json()["data"]["data"]["passRate"] is not None

@@ -256,7 +256,9 @@ def _build_url(base_url: str, path: str, path_params: dict[str, Any]) -> str:
 def _http_transport(request: dict[str, Any]) -> tuple[int | None, str, str | None, str | None]:
     timeout = float(request.get("timeout") or 30)
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        # trust_env=False：测试流量必须直连被测目标，不能走宿主机的系统代理
+        # （Windows 上 httpx 会读取 IE/系统代理设置，会把回环地址转发给代理导致 502）。
+        with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False) as client:
             response = client.request(
                 request["method"],
                 request["url"],
