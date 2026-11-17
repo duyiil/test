@@ -1,4 +1,4 @@
-"""OpenAPI 3.x 解析。不支持的 $ref 会记入错误，不静默丢弃。"""
+"""OpenAPI 3.x 与 Swagger 2.0 解析。不支持的 $ref 会记入错误，不静默丢弃。"""
 
 from __future__ import annotations
 
@@ -25,7 +25,11 @@ def parse_openapi_document(raw: str) -> dict[str, Any]:
         raise ValueError("OpenAPI 文档必须是对象")
     version = str(document.get("openapi") or "")
     if not version.startswith("3."):
-        raise ValueError("只支持 OpenAPI 3.x，当前缺少 openapi: 3.x 声明")
+        swagger = str(document.get("swagger") or "")
+        if not swagger.startswith("2."):
+            raise ValueError("只支持 OpenAPI 3.x 或 Swagger 2.0，当前缺少 openapi/swagger 版本声明")
+        document = _normalize_swagger2(document)
+        version = swagger
     paths = document.get("paths")
     if not isinstance(paths, dict) or not paths:
         raise ValueError("文档没有 paths")
@@ -52,6 +56,75 @@ def parse_openapi_document(raw: str) -> dict[str, Any]:
     if not endpoints:
         raise ValueError("没有解析出可导入的接口")
     return {"openapi": version, "endpoints": endpoints, "errors": errors, "warnings": warnings}
+
+
+def _normalize_swagger2(document: dict[str, Any]) -> dict[str, Any]:
+    """把 Swagger 2.0 文档整理成解析器认识的形状：basePath 并入路径，
+    in: body 参数转 requestBody，响应 schema 包进 content，并就地解析引用。"""
+
+    base = str(document.get("basePath") or "").rstrip("/")
+    paths = document.get("paths")
+    if not isinstance(paths, dict):
+        document["paths"] = {}
+        return document
+    normalized: dict[str, Any] = {}
+    for path, item in paths.items():
+        text = str(path)
+        if base and not text.startswith(base + "/") and text != base:
+            key = base + text
+        else:
+            key = text
+        if isinstance(item, dict):
+            for operation in item.values():
+                if not isinstance(operation, dict):
+                    continue
+                _convert_v2_parameters(document, operation)
+                _convert_v2_responses(document, operation)
+        normalized[key] = item
+    document["paths"] = normalized
+    return document
+
+
+def _convert_v2_parameters(document: dict[str, Any], operation: dict[str, Any]) -> None:
+    parameters = operation.get("parameters")
+    if not isinstance(parameters, list):
+        return
+    body_schema = None
+    kept: list[Any] = []
+    for raw in parameters:
+        parameter = raw
+        if isinstance(raw, dict) and "$ref" in raw:
+            parameter = _resolve(document, str(raw["$ref"]), "parameter")
+        if not isinstance(parameter, dict):
+            kept.append(raw)
+            continue
+        if parameter.get("in") == "body":
+            if body_schema is None and parameter.get("schema") is not None:
+                body_schema = parameter["schema"]
+            continue
+        # 2.0 的 type/items 直接写在参数上，3.x 收在 schema 里。复制后改写，避免动到共享的全局参数对象。
+        if "schema" not in parameter and parameter.get("type") is not None:
+            parameter = dict(parameter)
+            schema: dict[str, Any] = {"type": parameter.pop("type")}
+            if isinstance(parameter.get("items"), dict):
+                schema["items"] = parameter.pop("items")
+            parameter["schema"] = schema
+        kept.append(parameter)
+    if body_schema is not None:
+        operation["requestBody"] = {"content": {"application/json": {"schema": body_schema}}}
+    operation["parameters"] = kept
+
+
+def _convert_v2_responses(document: dict[str, Any], operation: dict[str, Any]) -> None:
+    responses = operation.get("responses")
+    if not isinstance(responses, dict):
+        return
+    for status, payload in responses.items():
+        if isinstance(payload, dict) and "$ref" in payload:
+            payload = _resolve(document, str(payload["$ref"]), f"response {status}")
+            responses[status] = payload
+        if isinstance(payload, dict) and "content" not in payload and payload.get("schema") is not None:
+            payload["content"] = {"application/json": {"schema": payload["schema"]}}
 
 
 def _operation(
