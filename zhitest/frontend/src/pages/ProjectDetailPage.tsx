@@ -131,7 +131,7 @@ export function ProjectDetailPage() {
           检查执行目标
         </Button>
       </Space>
-      <Card title="OpenAPI 3.x">
+      <Card title="OpenAPI 3.x / Swagger 2.0">
         <Input.TextArea rows={6} value={openApiText} onChange={(event) => setOpenApiText(event.target.value)} placeholder="粘贴 JSON 或 YAML" />
         <Space style={{ marginTop: 12 }}>
           <Button
