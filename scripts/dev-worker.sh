@@ -5,6 +5,10 @@ cd "$ROOT/zhitest/backend"
 if [[ -f .venv/bin/activate ]]; then
   # shellcheck disable=SC1091
   source .venv/bin/activate
+elif [[ -f .venv/Scripts/activate ]]; then
+  # shellcheck disable=SC1091
+  # Windows venv 布局：activate 在 Scripts/ 下
+  source .venv/Scripts/activate
 fi
 export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://zhitest:zhitest@127.0.0.1:5432/zhitest}"
 export ZHITEST_LOG_LEVEL="${ZHITEST_LOG_LEVEL:-INFO}"
