@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DATABASE_URL"),
     )
     auto_bootstrap: bool = Field(default=True, validation_alias=AliasChoices("ZHITEST_AUTO_BOOTSTRAP"))
+    seed_demo: bool = Field(default=True, validation_alias=AliasChoices("ZHITEST_SEED_DEMO"))
     admin_username: str = Field(default="admin", validation_alias=AliasChoices("ZHITEST_ADMIN_USERNAME"))
     admin_password: str = Field(default="", validation_alias=AliasChoices("ZHITEST_ADMIN_PASSWORD"))
     admin_display_name: str = Field(
@@ -43,6 +44,8 @@ class Settings(BaseSettings):
     )
     llm_model: str = Field(default="deepseek-chat", validation_alias=AliasChoices("ZHITEST_LLM_MODEL"))
     llm_api_key: str = Field(default="", validation_alias=AliasChoices("ZHITEST_LLM_API_KEY"))
+    github_token: str = Field(default="", validation_alias=AliasChoices("ZHITEST_GITHUB_TOKEN"))
+    github_proxy: str = Field(default="", validation_alias=AliasChoices("ZHITEST_GITHUB_PROXY"))
     secret_key: str = Field(default="", validation_alias=AliasChoices("ZHITEST_SECRET_KEY"))
 
     @property

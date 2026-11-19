@@ -63,9 +63,72 @@ def test_openapi_preview_and_confirm_generates_drafts(client: TestClient, db_ses
     assert cases[0]["relativePath"] == "/api/items"
     bad = client.post(
         f"/api/v1/projects/{project_id}/openapi/preview",
-        json={"document": "swagger: '2.0'\npaths: {}\n"},
+        json={"document": "info:\n  title: demo\npaths: {}\n"},
     )
     assert bad.status_code == 422
+    assert "只支持 OpenAPI 3.x 或 Swagger 2.0" in bad.json()["message"]
+
+
+SWAGGER2 = """
+swagger: "2.0"
+info:
+  title: legacy
+  version: "1"
+basePath: /v2
+paths:
+  /pets:
+    get:
+      summary: 列表
+      parameters:
+        - name: limit
+          in: query
+          type: integer
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Pet"
+    post:
+      summary: 创建
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: "#/definitions/Pet"
+      responses:
+        "201":
+          $ref: "#/responses/Created"
+definitions:
+  Pet:
+    type: object
+    properties:
+      name:
+        type: string
+responses:
+  Created:
+    description: created
+    schema:
+      type: object
+"""
+
+
+def test_swagger2_parses_basepath_body_and_refs() -> None:
+    from app.modules.ai.openapi_parser import parse_openapi_document
+
+    parsed = parse_openapi_document(SWAGGER2)
+    assert parsed["openapi"] == "2.0"
+    by_key = {(item["method"], item["path"]): item for item in parsed["endpoints"]}
+    assert set(by_key) == {("GET", "/v2/pets"), ("POST", "/v2/pets")}
+    listing = by_key[("GET", "/v2/pets")]
+    assert listing["query"] == [{"name": "limit", "type": "integer", "required": False}]
+    assert listing["responses"]["200"] == {"type": "array"}
+    creating = by_key[("POST", "/v2/pets")]
+    assert creating["body"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+    assert creating["responses"]["201"] == {"type": "object"}
+    assert parsed["warnings"] == []
 
 
 def test_openapi_path_param_without_example_uses_schema_type() -> None:

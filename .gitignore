@@ -15,3 +15,8 @@ pgdata/
 *.log
 .coverage
 htmlcov/
+
+# 本地运行产物（Claude Code 安装辅助）
+.runtime/
+.npm-cache/
+.pip-cache/

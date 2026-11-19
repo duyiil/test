@@ -19,4 +19,4 @@ Worker 是 `python -m app.worker`，轮询 PostgreSQL。没有引入 Celery / Re
 cd zhitest/frontend && npm run dev
 ```
 
-项目 Base URL 使用 `http://127.0.0.1:9000`。页面上先「载入演示契约」，再「生成测试草稿」。草稿提交审核并通过后，在执行页确认写操作并入队。Worker 跑完后可以打开数据报告。
+项目 Base URL 使用 `http://127.0.0.1:8001`。页面上先「载入演示契约」，再「生成测试草稿」。草稿提交审核并通过后，在执行页确认写操作并入队。Worker 跑完后可以打开数据报告。

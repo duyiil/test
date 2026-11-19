@@ -1,9 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Card, Descriptions, Input, Space, Statistic, Typography } from "antd";
+import { Alert, Button, Card, Checkbox, Descriptions, Input, Space, Statistic, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { errorText } from "../api/client";
-import { checkTarget, confirmOpenApi, createGeneration, getGeneration, getProject, listEndpoints, loadDemoContract, previewOpenApi } from "../api/resources";
+import {
+  checkTarget,
+  confirmOpenApi,
+  createGeneration,
+  detectGithubProject,
+  detectSite,
+  getGeneration,
+  getProject,
+  importGithubSpec,
+  importSiteSpec,
+  listEndpoints,
+  loadDemoContract,
+  previewOpenApi,
+  type GithubDetection,
+  type SiteDetection,
+} from "../api/resources";
 import { useUiStore } from "../stores/ui";
 import { RUN_LABEL, formatTime } from "../utils/format";
 
@@ -16,6 +31,13 @@ export function ProjectDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [openApiText, setOpenApiText] = useState("");
   const [previewText, setPreviewText] = useState("");
+  const [githubUrl, setGithubUrl] = useState("");
+  const [githubResult, setGithubResult] = useState<GithubDetection | null>(null);
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [siteUrl, setSiteUrl] = useState("");
+  const [siteResult, setSiteResult] = useState<SiteDetection | null>(null);
+  const [siteBusy, setSiteBusy] = useState(false);
+  const [updateBaseUrl, setUpdateBaseUrl] = useState(true);
   const query = useQuery({
     queryKey: ["project", projectId],
     queryFn: async () => (await getProject(projectId)).data,
@@ -57,6 +79,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     if (query.data) setSelectedProjectId(query.data.id);
   }, [query.data, setSelectedProjectId]);
+
+  useEffect(() => {
+    if (query.data?.baseUrl && !siteUrl) setSiteUrl(query.data.baseUrl);
+  }, [query.data, siteUrl]);
 
   useEffect(() => {
     if (generation.data?.status === "succeeded" || generation.data?.status === "failed") {
@@ -116,7 +142,7 @@ export function ProjectDetailPage() {
           检查执行目标
         </Button>
       </Space>
-      <Card title="OpenAPI 3.x">
+      <Card title="OpenAPI 3.x / Swagger 2.0">
         <Input.TextArea rows={6} value={openApiText} onChange={(event) => setOpenApiText(event.target.value)} placeholder="粘贴 JSON 或 YAML" />
         <Space style={{ marginTop: 12 }}>
           <Button
@@ -162,6 +188,222 @@ export function ProjectDetailPage() {
           />
         </Space>
         {previewText ? <pre className="json-preview">{previewText}</pre> : null}
+      </Card>
+      <Card title="GitHub 项目接入">
+        <Space wrap>
+          <Input
+            style={{ width: 380 }}
+            value={githubUrl}
+            onChange={(event) => setGithubUrl(event.target.value)}
+            placeholder="https://github.com/owner/repo"
+          />
+          <Button
+            loading={githubBusy}
+            onClick={async () => {
+              try {
+                setGithubBusy(true);
+                const result = await detectGithubProject(projectId, githubUrl);
+                setActionError(null);
+                setGithubResult(result.data);
+              } catch (error) {
+                setGithubResult(null);
+                setActionError(errorText(error));
+              } finally {
+                setGithubBusy(false);
+              }
+            }}
+          >
+            检测项目
+          </Button>
+        </Space>
+        {githubResult ? (
+          <div className="page-stack" style={{ marginTop: 12 }}>
+            <Alert
+              type="success"
+              showIcon
+              message={`${githubResult.repo.fullName}（${githubResult.repo.language || "未标注语言"}，分支 ${githubResult.ref}，约 ${githubResult.fileCount} 个文件）`}
+              description={
+                githubResult.repo.description
+                  ? `${githubResult.repo.description}；框架指纹：${githubResult.frameworks.join("、")}`
+                  : `框架指纹：${githubResult.frameworks.join("、")}`
+              }
+            />
+            {githubResult.specCandidates.length === 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="没有找到 OpenAPI/Swagger 接口定义文件。可以粘贴文档到上方 OpenAPI 区域，或检查仓库中是否包含 openapi.json / swagger.yaml 等文件。"
+              />
+            ) : (
+              githubResult.specCandidates.map((candidate) => (
+                <Card key={candidate.path} size="small" title={candidate.path}>
+                  {candidate.parseOk ? (
+                    <Space wrap>
+                      <span>
+                        解析通过，{candidate.endpointCount} 个接口（OpenAPI {candidate.openapi ?? ""}）
+                      </span>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            const result = await importGithubSpec(projectId, githubUrl, candidate.path, false);
+                            setActionError(null);
+                            setPreviewText(`已导入 ${result.data.saved} 个接口`);
+                            await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                            await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                          } catch (error) {
+                            setActionError(errorText(error));
+                          }
+                        }}
+                      >
+                        导入接口
+                      </Button>
+                      <Button
+                        type="primary"
+                        onClick={async () => {
+                          try {
+                            const result = await importGithubSpec(projectId, githubUrl, candidate.path, true);
+                            setActionError(null);
+                            setPreviewText(`已导入 ${result.data.saved} 个接口，用例生成任务已入队`);
+                            await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                            await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                            if (result.data.generationTaskId) setTaskId(result.data.generationTaskId);
+                          } catch (error) {
+                            setActionError(errorText(error));
+                          }
+                        }}
+                      >
+                        导入并生成用例
+                      </Button>
+                    </Space>
+                  ) : (
+                    <span>解析失败：{candidate.error || "未知原因"}</span>
+                  )}
+                </Card>
+              ))
+            )}
+          </div>
+        ) : null}
+      </Card>
+      <Card title="网站检测">
+        <Space wrap>
+          <Input
+            style={{ width: 380 }}
+            value={siteUrl}
+            onChange={(event) => setSiteUrl(event.target.value)}
+            placeholder="https://example.com"
+          />
+          <Button
+            loading={siteBusy}
+            onClick={async () => {
+              try {
+                setSiteBusy(true);
+                const result = await detectSite(projectId, siteUrl);
+                setActionError(null);
+                setSiteResult(result.data);
+              } catch (error) {
+                setSiteResult(null);
+                setActionError(errorText(error));
+              } finally {
+                setSiteBusy(false);
+              }
+            }}
+          >
+            检测网站
+          </Button>
+        </Space>
+        {siteResult ? (
+          <div className="page-stack" style={{ marginTop: 12 }}>
+            <Alert
+              type="success"
+              showIcon
+              message={`${siteResult.title || "（无标题）"} · HTTP ${siteResult.status} · ${siteResult.finalUrl}`}
+              description={
+                siteResult.redirects.length > 0
+                  ? `技术栈：${siteResult.technologies.join("、")}；重定向：${siteResult.redirects
+                      .map((item) => `${item.from} → ${item.to}（${item.status}）`)
+                      .join("；")}`
+                  : `技术栈：${siteResult.technologies.join("、")}`
+              }
+            />
+            <Card size="small" title="扫描结果">
+              <Descriptions column={{ xs: 1, md: 2 }} size="small">
+                <Descriptions.Item label="安全响应头">
+                  <Space wrap>
+                    {siteResult.securityHeaders.map((item) => (
+                      <Tag key={item.name} color={item.present ? "green" : "red"}>
+                        {item.name}：{item.present ? "已启用" : "缺失"}
+                      </Tag>
+                    ))}
+                  </Space>
+                </Descriptions.Item>
+                <Descriptions.Item label="探测路径">
+                  {siteResult.probeResults.map((item) => `${item.path} → ${item.status ?? "连接失败"}`).join("；")}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+            {siteResult.specCandidates.filter((item) => item.parseOk).length === 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="没有探测到可解析的 OpenAPI/Swagger 接口定义。可以粘贴文档到上方 OpenAPI 区域，或换一个地址重试。"
+              />
+            ) : (
+              siteResult.specCandidates.map((candidate) => (
+                <Card key={candidate.path} size="small" title={candidate.path}>
+                  {candidate.parseOk ? (
+                    <Space wrap>
+                      <span>
+                        解析通过，{candidate.endpointCount} 个接口（OpenAPI {candidate.openapi ?? ""}）
+                      </span>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            const result = await importSiteSpec(projectId, siteUrl, candidate.path, false, updateBaseUrl);
+                            setActionError(null);
+                            const extra = result.data.baseUrlUpdated ? `；执行目标已更新为 ${result.data.scan.finalUrl}` : "";
+                            setPreviewText(`已导入 ${result.data.saved} 个接口，站点扫描摘要已保存${extra}`);
+                            await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                            await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                          } catch (error) {
+                            setActionError(errorText(error));
+                          }
+                        }}
+                      >
+                        导入接口
+                      </Button>
+                      <Button
+                        type="primary"
+                        onClick={async () => {
+                          try {
+                            const result = await importSiteSpec(projectId, siteUrl, candidate.path, true, updateBaseUrl);
+                            setActionError(null);
+                            const extra = result.data.baseUrlUpdated ? `；执行目标已更新为 ${result.data.scan.finalUrl}` : "";
+                            setPreviewText(`已导入 ${result.data.saved} 个接口，用例生成任务已入队，站点扫描摘要已保存${extra}`);
+                            await queryClient.invalidateQueries({ queryKey: ["endpoints", projectId] });
+                            await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                            if (result.data.generationTaskId) setTaskId(result.data.generationTaskId);
+                          } catch (error) {
+                            setActionError(errorText(error));
+                          }
+                        }}
+                      >
+                        导入并生成用例
+                      </Button>
+                    </Space>
+                  ) : (
+                    <span>
+                      {candidate.status !== null && candidate.status < 400 ? "解析失败：" : ""}
+                      {candidate.error || `HTTP ${candidate.status ?? "连接失败"}`}
+                    </span>
+                  )}
+                </Card>
+              ))
+            )}
+            <Checkbox checked={updateBaseUrl} onChange={(event) => setUpdateBaseUrl(event.target.checked)}>
+              导入后将项目执行目标更新为该站点（如有活动环境会一并停用）
+            </Checkbox>
+          </div>
+        ) : null}
       </Card>
       {generation.data ? (
         <Alert
