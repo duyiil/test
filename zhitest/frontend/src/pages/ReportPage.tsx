@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Card, Descriptions, List, Space, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, List, Space, Tag, Typography } from "antd";
 import { useState } from "react";
 import { DownloadOutlined } from "@ant-design/icons";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -89,6 +89,32 @@ export function ReportPage() {
               <Descriptions.Item label="跳过">{data.skippedCount}</Descriptions.Item>
             </Descriptions>
           </Card>
+          {data.snapshot.siteScan ? (
+            <Card title="站点扫描">
+              <Descriptions column={{ xs: 1, md: 3 }} size="small">
+                <Descriptions.Item label="扫描地址">{data.snapshot.siteScan.url}</Descriptions.Item>
+                <Descriptions.Item label="最终地址">{data.snapshot.siteScan.finalUrl}</Descriptions.Item>
+                <Descriptions.Item label="HTTP 状态">{data.snapshot.siteScan.status}</Descriptions.Item>
+                <Descriptions.Item label="页面标题">{data.snapshot.siteScan.title || "（无标题）"}</Descriptions.Item>
+                <Descriptions.Item label="扫描时间">{formatTime(data.snapshot.siteScan.scannedAt)}</Descriptions.Item>
+              </Descriptions>
+              <Space wrap style={{ marginTop: 8 }}>
+                {data.snapshot.siteScan.technologies.map((item) => (
+                  <Tag key={item}>{item}</Tag>
+                ))}
+              </Space>
+              <Space wrap style={{ marginTop: 8 }}>
+                {data.snapshot.siteScan.securityHeaders.map((item) => (
+                  <Tag key={item.name} color={item.present ? "green" : "red"}>
+                    {item.name}：{item.present ? "已启用" : "缺失"}
+                  </Tag>
+                ))}
+              </Space>
+              <div style={{ marginTop: 8 }}>
+                {data.snapshot.siteScan.probeResults.map((item) => `${item.path} → ${item.status ?? "连接失败"}`).join("；")}
+              </div>
+            </Card>
+          ) : null}
           <List
             header="原始结果"
             dataSource={data.results}
