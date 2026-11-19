@@ -492,6 +492,8 @@ def _create_run_body(
         "model": model_name,
         "suiteId": str(suite_id) if suite_id else None,
     }
+    if project.site_scan:
+        snapshot["siteScan"] = project.site_scan
     run = TestRun(
         project_id=project.id,
         status="queued",

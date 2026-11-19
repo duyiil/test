@@ -123,7 +123,7 @@ export interface ReportItem {
     skippedCount: number;
     passRate: number | null;
     passRateText: string;
-    snapshot: { baseUrl?: string; specVersions?: number[] };
+    snapshot: { baseUrl?: string; specVersions?: number[]; siteScan?: SiteScanSummary };
     results: RunItem["results"];
   };
 }
@@ -230,6 +230,64 @@ export function detectGithubProject(projectId: string, url: string) {
 export function importGithubSpec(projectId: string, url: string, specPath: string, autoGenerate: boolean) {
   return unwrap<{ saved: number; disabled: number; generationTaskId?: string }>(
     http.post(`/projects/${projectId}/github/import`, { url, specPath, autoGenerate }),
+  );
+}
+
+export interface SiteSecurityHeader {
+  name: string;
+  present: boolean;
+}
+
+export interface SiteProbeResult {
+  path: string;
+  status: number | null;
+}
+
+export interface SiteRedirect {
+  from: string;
+  to: string;
+  status: number;
+}
+
+export interface SiteCandidate {
+  path: string;
+  status: number | null;
+  parseOk: boolean;
+  endpointCount: number;
+  error: string;
+  openapi?: string;
+}
+
+export interface SiteDetection {
+  url: string;
+  finalUrl: string;
+  status: number;
+  title: string;
+  redirects: SiteRedirect[];
+  technologies: string[];
+  securityHeaders: SiteSecurityHeader[];
+  probeResults: SiteProbeResult[];
+  specCandidates: SiteCandidate[];
+}
+
+export interface SiteScanSummary {
+  url: string;
+  finalUrl: string;
+  status: number;
+  title: string;
+  technologies: string[];
+  securityHeaders: SiteSecurityHeader[];
+  probeResults: SiteProbeResult[];
+  scannedAt: string;
+}
+
+export function detectSite(projectId: string, url: string) {
+  return unwrap<SiteDetection>(http.post(`/projects/${projectId}/site/detect`, { url }, { timeout: 60000 }));
+}
+
+export function importSiteSpec(projectId: string, url: string, specPath: string, autoGenerate: boolean, updateBaseUrl: boolean) {
+  return unwrap<{ saved: number; disabled: number; generationTaskId?: string; scan: SiteScanSummary; baseUrlUpdated: boolean }>(
+    http.post(`/projects/${projectId}/site/import`, { url, specPath, autoGenerate, updateBaseUrl }, { timeout: 60000 }),
   );
 }
 
