@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -31,6 +32,22 @@ METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 ACTIVE_RUN = {"queued", "running", "cancelling"}
 AI_MESSAGE = "未配置真实研判模型。这里只展示数据报告，不把 Mock 生成说成模型分析。"
+
+# 可执行内容：决定请求如何发送与结果如何判定，任一字段变化才新增版本并重新走审核。
+EXECUTABLE_FIELDS: tuple[str, ...] = (
+    "method",
+    "relative_path",
+    "headers",
+    "query",
+    "path_params",
+    "body",
+    "timeout_seconds",
+    "assertions",
+    "extract",
+    "dependencies",
+)
+# 非可执行内容：仅用于展示与说明，原地更新当前版本，不改变版本号与审核状态。
+META_FIELDS: tuple[str, ...] = ("name", "description", "scenario", "basis")
 
 
 def pass_rate(passed: int, assertion_failed: int) -> tuple[float | None, str]:
@@ -344,18 +361,123 @@ def reject_version(db: Session, user: User, version_id: uuid.UUID, reason: str, 
     return version
 
 
+def _normalize_json_value(value: Any) -> Any:
+    """递归规范化 JSON 值：dict 键统一为字符串、tuple 统一为 list，便于稳定比较。"""
+    if isinstance(value, dict):
+        return {str(key): _normalize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_json_value(item) for item in value]
+    return value
+
+
+def _canonical_json(value: Any) -> str:
+    """序列化为规范化 JSON 字符串：键排序消除 dict 顺序差异，列表仍按原顺序逐项比较。"""
+    return json.dumps(
+        _normalize_json_value(value),
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _same_json_content(left: Any, right: Any) -> bool:
+    """判断两个 JSON 值内容是否一致；相同内容（含键顺序不同）必须判为相同。"""
+    return _canonical_json(left) == _canonical_json(right)
+
+
 def edit_version(
     db: Session,
     user: User,
     version_id: uuid.UUID,
     *,
-    name: str | None,
-    description: str | None,
-    assertions: list[dict[str, Any]] | None,
-    ip: str | None,
+    name: str | None = None,
+    description: str | None = None,
+    scenario: str | None = None,
+    basis: str | None = None,
+    method: str | None = None,
+    relative_path: str | None = None,
+    headers: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    path_params: dict[str, Any] | None = None,
+    body: Any | None = None,
+    timeout_seconds: int | None = None,
+    assertions: list[dict[str, Any]] | None = None,
+    extract: list[dict[str, Any]] | None = None,
+    dependencies: list[str] | None = None,
+    ip: str | None = None,
 ) -> TestCaseVersion:
+    """编辑用例版本：可执行内容变化才新增版本，否则原地更新当前版本。
+
+    None 表示调用方未提供该字段，沿用当前版本取值。仅修改 name/description/
+    scenario/basis 等非可执行内容时，保持版本号与 review_status 不变，写一条
+    action="edit" 的 ReviewEvent 与 metaOnly=true 的审计；可执行内容（见
+    EXECUTABLE_FIELDS）任一变化时，新增 version_number+1 的版本，原 confirmed
+    版本的新版本置为 pending_review，其余状态置为 draft。
+    """
     current = get_version_for_user(db, user, version_id)
     _require_latest(db, current)
+    # 组装编辑后的完整取值：未提供的字段沿用当前版本，dict/list 复制一份避免共享引用。
+    proposed: dict[str, Any] = {
+        "name": name.strip() if name is not None else current.name,
+        "description": description.strip() if description is not None else current.description,
+        "scenario": scenario.strip() if scenario is not None else current.scenario,
+        "basis": basis.strip() if basis is not None else current.basis,
+        "method": method.strip() if method is not None else current.method,
+        "relative_path": relative_path.strip() if relative_path is not None else current.relative_path,
+        "headers": dict(headers) if headers is not None else dict(current.headers or {}),
+        "query": dict(query) if query is not None else dict(current.query or {}),
+        "path_params": dict(path_params) if path_params is not None else dict(current.path_params or {}),
+        "body": body if body is not None else current.body,
+        "timeout_seconds": int(timeout_seconds) if timeout_seconds is not None else current.timeout_seconds,
+        "assertions": list(assertions) if assertions is not None else list(current.assertions or []),
+        "extract": list(extract) if extract is not None else list(current.extract or []),
+        "dependencies": list(dependencies) if dependencies is not None else list(current.dependencies or []),
+    }
+    if not proposed["name"]:
+        raise AppError(422, "VALIDATION_ERROR", "用例名称不能为空")
+    meta_values: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "scenario": scenario,
+        "basis": basis,
+    }
+    meta_provided = [field for field in META_FIELDS if meta_values[field] is not None]
+    changed_fields = [
+        field
+        for field in EXECUTABLE_FIELDS
+        if not _same_json_content(proposed[field], getattr(current, field))
+    ]
+    now = datetime.now(timezone.utc)
+    if not changed_fields:
+        # 仅非可执行内容变更（或可执行内容传入了与当前值相同的内容）：原地更新，不产生新版本。
+        for field in meta_provided:
+            setattr(current, field, proposed[field])
+        db.flush()
+        db.add(
+            ReviewEvent(
+                version_id=current.id,
+                action="edit",
+                reason="仅非可执行内容变更，不产生新版本",
+                actor_id=user.id,
+                created_at=now,
+            )
+        )
+        write_audit(
+            db,
+            action="case.edit",
+            actor_id=user.id,
+            resource_type="case_version",
+            resource_id=str(current.id),
+            detail={
+                "metaOnly": True,
+                "version": current.version_number,
+                "reviewStatus": current.review_status,
+                "changedFields": list(meta_provided),
+            },
+            ip=ip,
+        )
+        return current
     next_status = "pending_review" if current.review_status == "confirmed" else "draft"
     latest_number = db.scalar(
         select(func.max(TestCaseVersion.version_number)).where(TestCaseVersion.case_id == current.case_id)
@@ -364,28 +486,26 @@ def edit_version(
         case_id=current.case_id,
         version_number=int(latest_number or 1) + 1,
         spec_version=current.spec_version,
-        name=(name or current.name).strip(),
-        description=current.description if description is None else description.strip(),
-        scenario=current.scenario,
-        basis=current.basis,
-        method=current.method,
-        relative_path=current.relative_path,
-        headers=current.headers,
-        query=current.query,
-        path_params=current.path_params,
-        body=current.body,
-        timeout_seconds=current.timeout_seconds,
-        assertions=current.assertions if assertions is None else assertions,
-        extract=list(current.extract or []),
-        dependencies=list(current.dependencies or []),
+        name=proposed["name"],
+        description=proposed["description"],
+        scenario=proposed["scenario"],
+        basis=proposed["basis"],
+        method=proposed["method"],
+        relative_path=proposed["relative_path"],
+        headers=proposed["headers"],
+        query=proposed["query"],
+        path_params=proposed["path_params"],
+        body=proposed["body"],
+        timeout_seconds=proposed["timeout_seconds"],
+        assertions=proposed["assertions"],
+        extract=proposed["extract"],
+        dependencies=proposed["dependencies"],
         review_status=next_status,
         enabled=True,
         origin=current.origin,
         created_by=user.id,
-        created_at=datetime.now(timezone.utc),
+        created_at=now,
     )
-    if not created.name:
-        raise AppError(422, "VALIDATION_ERROR", "用例名称不能为空")
     db.add(created)
     db.flush()
     db.add(
@@ -394,7 +514,7 @@ def edit_version(
             action="edit",
             actor_id=user.id,
             reason="可执行内容变更产生新版本",
-            created_at=datetime.now(timezone.utc),
+            created_at=now,
         )
     )
     write_audit(
@@ -403,7 +523,12 @@ def edit_version(
         actor_id=user.id,
         resource_type="case_version",
         resource_id=str(created.id),
-        detail={"fromVersion": current.version_number, "reviewStatus": next_status},
+        detail={
+            "fromVersion": current.version_number,
+            "reviewStatus": next_status,
+            "metaOnly": False,
+            "changedFields": changed_fields,
+        },
         ip=ip,
     )
     return created

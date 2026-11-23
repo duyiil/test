@@ -103,20 +103,30 @@ def test_generation_review_edit_and_reject(client: TestClient, db_session: Sessi
     second = items[1]
     edited = client.post(f"/api/v1/case-versions/{second['id']}/edit", json={"name": "已修改的用例"})
     assert edited.status_code == 200
-    assert edited.json()["data"]["versionNumber"] == 2
+    # US-03.2：只改名称属于非可执行内容变更，原地更新，版本号与审核状态都不变。
+    assert edited.json()["data"]["id"] == second["id"]
+    assert edited.json()["data"]["versionNumber"] == second["versionNumber"]
     assert edited.json()["data"]["reviewStatus"] == "draft"
+    assert edited.json()["data"]["name"] == "已修改的用例"
+    assert edited.json()["data"]["events"][-1]["action"] == "edit"
+    assert len(edited.json()["data"]["history"]) == 1
     version_id = edited.json()["data"]["id"]
     client.post(f"/api/v1/case-versions/{version_id}/submit")
     approved = client.post(f"/api/v1/case-versions/{version_id}/approve")
     assert approved.status_code == 200
     assert approved.json()["data"]["reviewStatus"] == "confirmed"
+    # 改断言属于可执行内容变更：confirmed 版本产生新版本并回到 pending_review。
+    new_assertions = [{"type": "statusCode", "expected": 200}]
+    assert second["assertions"] != new_assertions
     revised = client.post(
         f"/api/v1/case-versions/{version_id}/edit",
-        json={"assertions": [{"type": "statusCode", "expected": 200}]},
+        json={"assertions": new_assertions},
     )
     assert revised.status_code == 200
     assert revised.json()["data"]["reviewStatus"] == "pending_review"
-    assert revised.json()["data"]["versionNumber"] == 3
+    assert revised.json()["data"]["versionNumber"] == second["versionNumber"] + 1
+    assert revised.json()["data"]["name"] == "已修改的用例"
+    assert len(revised.json()["data"]["history"]) == 2
 
 
 def test_empty_assertions_cannot_be_approved(client: TestClient, db_session: Session) -> None:

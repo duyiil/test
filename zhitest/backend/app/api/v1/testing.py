@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
@@ -40,9 +41,30 @@ class RejectBody(BaseModel):
 
 
 class EditBody(BaseModel):
+    """编辑用例版本的请求体。
+
+    未提供（None）的字段沿用当前版本取值。name/description/scenario/basis 属于
+    非可执行内容，仅修改它们时原地更新；method/relativePath/headers/query/
+    pathParams/body/timeout/assertions/extract/dependencies 属于可执行内容，
+    任一变化时新增版本。body 传 null 按未提供处理，需要清空请求体请传空对象。
+    """
+
     name: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None, max_length=4000)
+    scenario: str | None = Field(default=None, max_length=64)
+    basis: str | None = None
+    method: str | None = Field(default=None, max_length=16)
+    relative_path: str | None = Field(default=None, alias="relativePath", max_length=300)
+    headers: dict[str, Any] | None = None
+    query: dict[str, Any] | None = None
+    path_params: dict[str, Any] | None = Field(default=None, alias="pathParams")
+    body: Any | None = None
+    timeout_seconds: int | None = Field(default=None, alias="timeout")
     assertions: list[dict] | None = None
+    extract: list[dict] | None = None
+    dependencies: list[str] | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class RunBody(BaseModel):
@@ -167,10 +189,23 @@ def edit(
         version_id,
         name=body.name,
         description=body.description,
+        scenario=body.scenario,
+        basis=body.basis,
+        method=body.method,
+        relative_path=body.relative_path,
+        headers=body.headers,
+        query=body.query,
+        path_params=body.path_params,
+        body=body.body,
+        timeout_seconds=body.timeout_seconds,
         assertions=body.assertions,
+        extract=body.extract,
+        dependencies=body.dependencies,
         ip=client_ip(request, settings),
     )
-    return success(version_payload(db, version), "已保存为新版本")
+    # 返回结构与字段保持不变：原地更新时返回的是原版本 id，据此给出更准确的提示文案。
+    message = "已保存（仅非可执行内容变更，未产生新版本）" if version.id == version_id else "已保存为新版本"
+    return success(version_payload(db, version), message)
 
 
 @router.post("/projects/{project_id}/runs", status_code=202)
